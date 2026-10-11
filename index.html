@@ -92,6 +92,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 .pend .x{position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;background:var(--danger);border:none;color:#fff;font-size:12px;line-height:20px;padding:0}
 .row{display:flex;align-items:flex-end;gap:6px}
 .row textarea{border:none;background:transparent;resize:none;max-height:240px;min-height:24px;padding:8px}
+.think-toggle{opacity:.45;filter:grayscale(1)}.think-toggle.on{opacity:1;filter:none;background:var(--panel2);border-color:var(--accent)}
 .send{display:flex;align-items:center;justify-content:center;background:var(--accent);border:none;border-radius:10px;width:40px;height:40px;color:#fff;font-size:18px;flex-shrink:0}
 .send:disabled{opacity:.4;cursor:default}
 .send.stop{background:var(--danger)}
@@ -128,7 +129,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
   <aside class="sidebar" id="sidebar">
     <div class="side-top">
       <button class="btn primary" id="newChat">＋ Новый чат</button>
-      <input id="search" placeholder="Поиск по чатам…">
+      <input id="search" type="search" name="chat-search-q" autocomplete="off" autocorrect="off" spellcheck="false" readonly onfocus="this.removeAttribute('readonly')" placeholder="Поиск по чатам…">
     </div>
     <div class="chat-list" id="chatList"></div>
     <div class="side-bottom"><div class="small" id="syncBadge" style="text-align:center;margin:0 0 8px">☁️ Синхронизация выключена</div><button class="btn" style="width:100%" id="openSettings2">⚙️ Настройки</button></div>
@@ -147,6 +148,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
         <div class="pending" id="pending"></div>
         <div class="row">
           <button class="icon-btn" id="attachBtn" title="Прикрепить файл или картинку">📎</button>
+          <button class="icon-btn think-toggle" id="thinkBtn" title="Режим размышления">🧠</button>
           <input type="file" id="fileInput" multiple hidden>
           <textarea id="input" rows="1" placeholder="Напишите сообщение… (можно вставить картинку Ctrl+V или перетащить файл)"></textarea>
           <button class="send" id="sendBtn" title="Отправить"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M3 20.5V3.5L22 12 3 20.5zm2-3.1L16.9 12 5 6.6V10l6 2-6 2v3.4z"/></svg></button>
@@ -183,7 +185,12 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
         <div class="field"><label>Temperature: <span id="tempVal"></span></label><input type="range" id="sTemp" min="0" max="2" step="0.05"></div>
         <div class="field"><label>Max tokens (пусто — по умолчанию)</label><input type="number" id="sMaxTokens" min="1"></div>
         <div class="field"><label>Сколько последних сообщений отправлять как контекст (0 — все)</label><input type="number" id="sContext" min="0"></div>
-        <div class="field check"><input type="checkbox" id="sStream"><label for="sStream" style="margin:0;color:var(--text)">Потоковый вывод (streaming)</label></div>
+        <div class="field" style="border-top:1px solid var(--border);padding-top:14px"><label>🧠 Встроенный ризонинг модели (reasoning effort)</label>
+          <select id="sEffort"><option value="off">Выкл — не отправлять</option><option value="low">Низкий</option><option value="medium">Средний</option><option value="high">Высокий</option></select>
+          <div class="small">Работает у «думающих» моделей (DeepSeek, Qwen, GPT, Claude, Gemini и др.). Если модель не поддерживает — параметр автоматически отбрасывается.</div></div>
+        <div class="field check"><input type="checkbox" id="sThink"><label for="sThink" style="margin:0;color:var(--text)">💭 Режим размышления — модель сначала рассуждает шаг за шагом (для любых, в т.ч. слабых моделей)</label></div>
+        <div class="field check"><input type="checkbox" id="sSelfCheck"><label for="sSelfCheck" style="margin:0;color:var(--text)">🔍 Самопроверка — модель проверяет и улучшает свой ответ (2 запроса, дольше)</label></div>
+        <div class="field check" style="border-top:1px solid var(--border);padding-top:14px"><input type="checkbox" id="sStream"><label for="sStream" style="margin:0;color:var(--text)">Потоковый вывод (streaming)</label></div>
         <div class="field check"><input type="checkbox" id="sAutoTitle"><label for="sAutoTitle" style="margin:0;color:var(--text)">Автоназвание чата по первому сообщению</label></div>
       </div>
       <div class="pane" data-pane="sync">
@@ -240,7 +247,7 @@ const DEFAULTS = {
   provider:"anymodel", model:"cx/gpt-5.6-luna", customModel:"",
   keys:{anymodel:"",openrouter:"",nyxos:"",xkiro:"",tooken:""},
   baseUrls:{}, fetchedModels:{},
-  system:"", temperature:0.7, maxTokens:"", context:0, stream:true, autoTitle:true
+  system:"", temperature:0.7, maxTokens:"", context:0, stream:true, autoTitle:true, reasoningEffort:"off", thinkPrompt:false, selfCheck:false
 };
 
 // ============ СОСТОЯНИЕ ============
@@ -377,7 +384,8 @@ function attsHtml(atts){
 function assistantBody(m){
   const {think, rest} = splitThink(m.content||"");
   let h = "";
-  if(m.reasoning || think) h += `<details class="think"><summary>💭 Рассуждения</summary><div>${esc((m.reasoning||"")+(think?"\n"+think:""))}</div></details>`;
+  const open = m._live && (!rest.trim() || m.checking) ? " open" : "";
+  if(m.reasoning || think) h += `<details class="think"${open}><summary>💭 Рассуждения${m._live && !rest.trim() ? " — думаю…" : ""}${m.checking ? " · 🔍 проверяю ответ…" : ""}</summary><div>${esc((m.reasoning||"")+(think?"\n"+think:""))}</div></details>`;
   if(m.error) h += `<div class="error">⚠️ ${esc(m.error)}</div>`;
   h += md(rest);
   return h;
@@ -489,7 +497,8 @@ function buildApiMessages(c){
   let msgs = c.messages.filter(m => !m.error || m.content);
   if(settings.context > 0) msgs = msgs.slice(-settings.context);
   const out = [];
-  if(settings.system.trim()) out.push({role:"system", content:settings.system.trim()});
+  const sys = [settings.system.trim(), settings.thinkPrompt ? THINK_PROMPT : ""].filter(Boolean).join("\n\n");
+  if(sys) out.push({role:"system", content:sys});
   for(const m of msgs){
     if(m.role==="assistant"){ out.push({role:"assistant", content: splitThink(m.content||"").rest}); continue; }
     const atts = m.attachments||[];
@@ -506,6 +515,57 @@ function buildApiMessages(c){
   return out;
 }
 
+const THINK_PROMPT = "Прежде чем ответить, подумай шаг за шагом внутри тегов <think>...</think>: пойми, что именно спрашивают; разбей задачу на части; рассмотри несколько вариантов решения; проверь факты, вычисления и логику; найди возможные ошибки и исправь их. Только после закрывающего тега </think> дай чёткий, полный итоговый ответ. Рассуждения пиши на языке пользователя.";
+const CHECK_PROMPT = "Критически проверь свой предыдущий ответ как строгий эксперт: найди фактические, логические и вычислительные ошибки, неточности и пропущенные части задачи. Затем напиши исправленный и улучшенный финальный ответ полностью, без упоминания проверки. Если ошибок нет — дай тот же ответ, но яснее и лучше структурированный.";
+
+async function callModel({p, key, model, messages, signal, onDelta, useReasoning=true}){
+  const body = { model, messages, stream: settings.stream, temperature: +settings.temperature };
+  if(settings.maxTokens) body.max_tokens = +settings.maxTokens;
+  const eff = settings.reasoningEffort;
+  if(useReasoning && eff && eff !== "off"){
+    if(p === "openrouter") body.reasoning = {effort: eff}; else body.reasoning_effort = eff;
+  }
+  const headers = {"Content-Type":"application/json", "Authorization":"Bearer "+key};
+  if(p==="openrouter"){ headers["HTTP-Referer"] = location.origin.startsWith("http") ? location.origin : "https://localhost"; headers["X-Title"] = "AI Chat HTML"; }
+  const res = await fetch(baseUrlOf(p)+"/chat/completions", {method:"POST", headers, body:JSON.stringify(body), signal});
+  if(!res.ok){
+    let t = await res.text(); try{ const j = JSON.parse(t); t = j.error?.message || j.message || t; }catch{}
+    if(useReasoning && eff && eff !== "off" && res.status >= 400 && res.status < 500 && /reason/i.test(String(t)))
+      return callModel({p, key, model, messages, signal, onDelta, useReasoning:false});
+    throw new Error(`HTTP ${res.status}: ${String(t).slice(0,500)}`);
+  }
+  const out = {content:"", reasoning:""};
+  const ctype = res.headers.get("content-type")||"";
+  if(settings.stream && ctype.includes("event-stream")){
+    const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = "";
+    while(true){
+      const {done, value} = await reader.read(); if(done) break;
+      buf += dec.decode(value, {stream:true});
+      const lines = buf.split("\n"); buf = lines.pop();
+      for(const line of lines){
+        const l = line.trim(); if(!l.startsWith("data:")) continue;
+        const data = l.slice(5).trim(); if(data==="[DONE]") continue;
+        try{ const j = JSON.parse(data);
+          if(j.error) throw new Error(j.error.message || JSON.stringify(j.error));
+          const d = j.choices?.[0]?.delta || {};
+          if(d.content) out.content += d.content;
+          const r = d.reasoning_content || d.reasoning; if(r) out.reasoning += r;
+          onDelta(out);
+        }catch(err){ if(err.message && !(err instanceof SyntaxError)) throw err; }
+      }
+    }
+  } else {
+    const j = await res.json();
+    if(j.error) throw new Error(j.error.message || JSON.stringify(j.error));
+    const m = j.choices?.[0]?.message || {};
+    out.content = typeof m.content === "string" ? m.content : (m.content||[]).map(x=>x.text||"").join("");
+    out.reasoning = m.reasoning_content || m.reasoning || "";
+    if(Array.isArray(m.images)) m.images.forEach(im=>{ const u = im.image_url?.url; if(u) out.content += `\n\n![image](${u})`; });
+    onDelta(out);
+  }
+  return out;
+}
+
 async function generate(){
   const c = current(); const p = settings.provider; const key = settings.keys[p]; const model = activeModel();
   const msg = {role:"assistant", content:"", reasoning:"", model, time:Date.now()};
@@ -515,57 +575,38 @@ async function generate(){
   if(!key){ msg.error = `Не указан API-ключ для «${PROVIDERS[p].name}». Откройте ⚙️ Настройки → API-ключи.`; bodyEl.innerHTML = assistantBody(msg); await persist(c); return; }
 
   controller = new AbortController(); genChatId = c.id; updateSendBtn();
-  bodyEl.classList.add("cursor");
+  bodyEl.classList.add("cursor"); msg._live = true;
   const box = $("#messages");
   const stick = () => box.scrollHeight - box.scrollTop - box.clientHeight < 120;
   let raf = 0;
   const repaint = () => { if(raf) return; raf = requestAnimationFrame(()=>{ raf=0; const s=stick(); bodyEl.innerHTML = assistantBody(msg); if(s) box.scrollTop = box.scrollHeight; }); };
-
-  const body = { model, messages: buildApiMessages({messages:c.messages.slice(0,-1)}), stream: settings.stream, temperature: +settings.temperature };
-  if(settings.maxTokens) body.max_tokens = +settings.maxTokens;
-  const headers = {"Content-Type":"application/json", "Authorization":"Bearer "+key};
-  if(p==="openrouter"){ headers["HTTP-Referer"] = location.origin.startsWith("http") ? location.origin : "https://localhost"; headers["X-Title"] = "AI Chat HTML"; }
+  const apiMsgs = buildApiMessages({messages:c.messages.slice(0,-1)});
 
   try{
-    const res = await fetch(baseUrlOf(p)+"/chat/completions", {method:"POST", headers, body:JSON.stringify(body), signal:controller.signal});
-    if(!res.ok){
-      let t = await res.text(); try{ const j = JSON.parse(t); t = j.error?.message || j.message || t; }catch{}
-      throw new Error(`HTTP ${res.status}: ${String(t).slice(0,500)}`);
-    }
-    const ctype = res.headers.get("content-type")||"";
-    if(settings.stream && ctype.includes("event-stream")){
-      const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = "";
-      while(true){
-        const {done, value} = await reader.read(); if(done) break;
-        buf += dec.decode(value, {stream:true});
-        const lines = buf.split("\n"); buf = lines.pop();
-        for(const line of lines){
-          const l = line.trim(); if(!l.startsWith("data:")) continue;
-          const data = l.slice(5).trim(); if(data==="[DONE]") continue;
-          try{ const j = JSON.parse(data);
-            if(j.error) throw new Error(j.error.message || JSON.stringify(j.error));
-            const d = j.choices?.[0]?.delta || {};
-            if(d.content) msg.content += d.content;
-            const r = d.reasoning_content || d.reasoning; if(r) msg.reasoning += r;
-            repaint();
-          }catch(err){ if(err.message && !(err instanceof SyntaxError)) throw err; }
-        }
-      }
-    } else {
-      const j = await res.json();
-      if(j.error) throw new Error(j.error.message || JSON.stringify(j.error));
-      const m = j.choices?.[0]?.message || {};
-      msg.content = typeof m.content === "string" ? m.content : (m.content||[]).map(x=>x.text||"").join("");
-      msg.reasoning = m.reasoning_content || m.reasoning || "";
-      if(Array.isArray(m.images)) m.images.forEach(im=>{ const u = im.image_url?.url; if(u) msg.content += `\n\n![image](${u})`; });
+    const r1 = await callModel({p, key, model, messages:apiMsgs, signal:controller.signal,
+      onDelta:o=>{ msg.content = o.content; msg.reasoning = o.reasoning; repaint(); }});
+    if(settings.selfCheck && r1.content.trim()){
+      const {think, rest} = splitThink(r1.content);
+      const draft = rest.trim() || r1.content;
+      const prevReasoning = [r1.reasoning, think].filter(Boolean).join("\n");
+      msg.reasoning = (prevReasoning ? prevReasoning + "\n\n" : "") + "━━ Черновик ответа ━━\n" + draft + "\n\n━━ 🔍 Самопроверка… ━━\n";
+      msg.content = ""; msg.checking = true; repaint();
+      const base = msg.reasoning;
+      const r2 = await callModel({p, key, model, signal:controller.signal,
+        messages:[...apiMsgs, {role:"assistant", content:draft}, {role:"user", content:CHECK_PROMPT}],
+        onDelta:o=>{ msg.content = o.content; msg.reasoning = base + (o.reasoning||""); repaint(); }});
+      msg.checking = false;
+      if(!splitThink(r2.content).rest.trim()) msg.content = draft;
     }
     if(!msg.content && !msg.reasoning) msg.error = "Пустой ответ от модели.";
   }catch(err){
+    msg.checking = false;
     if(err.name==="AbortError"){ msg.content += msg.content ? "\n\n*— остановлено —*" : ""; if(!msg.content) msg.error = "Генерация остановлена."; }
     else msg.error = (err.message==="Failed to fetch")
       ? "Не удалось подключиться (Failed to fetch). Проверьте интернет, Base URL, или провайдер блокирует запросы из браузера (CORS)."
       : err.message;
   }finally{
+    delete msg._live; delete msg.checking;
     controller = null; updateSendBtn();
     bodyEl.classList.remove("cursor"); bodyEl.innerHTML = assistantBody(msg);
     await persist(c); renderList();
@@ -578,7 +619,7 @@ function fillModelSelect(sel, p, val){
   const list = modelsOf(p); if(val && !list.includes(val)) list.unshift(val);
   sel.innerHTML = list.map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join(""); sel.value = val || list[0];
 }
-function refreshTop(){
+function refreshTop(){ if($("#thinkBtn")) renderThinkBtn();
   fillProviderSelect($("#providerSel"), settings.provider);
   const ms = $("#modelSel"); fillModelSelect(ms, settings.provider, activeModel());
 }
@@ -601,7 +642,7 @@ function openSettings(){
     `<div class="small">Ключи хранятся только локально в этом браузере (localStorage) и отправляются только выбранному провайдеру.</div>`;
   $("#keysPane").querySelectorAll("[data-show]").forEach(b=>b.onclick=()=>{ const i=$(`[data-key="${b.dataset.show}"]`); i.type = i.type==="password"?"text":"password"; });
   $("#sSystem").value = draft.system; $("#sTemp").value = draft.temperature; $("#tempVal").textContent = draft.temperature;
-  $("#sMaxTokens").value = draft.maxTokens; $("#sContext").value = draft.context; $("#sStream").checked = draft.stream; $("#sAutoTitle").checked = draft.autoTitle;
+  $("#sMaxTokens").value = draft.maxTokens; $("#sContext").value = draft.context; $("#sStream").checked = draft.stream; $("#sEffort").value = draft.reasoningEffort||"off"; $("#sThink").checked = !!draft.thinkPrompt; $("#sSelfCheck").checked = !!draft.selfCheck; $("#sAutoTitle").checked = draft.autoTitle;
   $("#fetchStatus").textContent = "";
   $("#settingsModal").classList.add("show");
 }
@@ -621,7 +662,7 @@ function collectDraft(){
   const bu = $("#sBaseUrl").value.trim(); if(bu && bu!==PROVIDERS[draft.provider].baseUrl) draft.baseUrls[draft.provider]=bu; else delete draft.baseUrls[draft.provider];
   document.querySelectorAll("[data-key]").forEach(i=> draft.keys[i.dataset.key] = i.value.trim());
   draft.system = $("#sSystem").value; draft.temperature = +$("#sTemp").value; draft.maxTokens = $("#sMaxTokens").value;
-  draft.context = +$("#sContext").value || 0; draft.stream = $("#sStream").checked; draft.autoTitle = $("#sAutoTitle").checked;
+  draft.context = +$("#sContext").value || 0; draft.stream = $("#sStream").checked; draft.reasoningEffort = $("#sEffort").value; draft.thinkPrompt = $("#sThink").checked; draft.selfCheck = $("#sSelfCheck").checked; draft.autoTitle = $("#sAutoTitle").checked;
 }
 $("#fetchModels").onclick = async ()=>{
   collectDraft(); const p = draft.provider, key = draft.keys[p]; const st = $("#fetchStatus");
@@ -797,8 +838,18 @@ $("#logoutBtn").onclick = async ()=>{ await sb.auth.signOut(); syncMsg("Вы в�
 $("#syncNowBtn").onclick = ()=>syncNow();
 $("#sSyncSettings").onchange = e=>{ localStorage.setItem("aichat_sync_settings", e.target.checked ? "1" : "0"); if(e.target.checked) scheduleSync(); };
 
+function renderThinkBtn(){ const b = $("#thinkBtn"); const on = settings.thinkPrompt || settings.selfCheck || (settings.reasoningEffort && settings.reasoningEffort!=="off");
+  b.classList.toggle("on", !!on);
+  b.title = on ? "Размышление включено: " + [settings.thinkPrompt?"шаг за шагом":"", settings.selfCheck?"самопроверка":"", settings.reasoningEffort!=="off"&&settings.reasoningEffort?"ризонинг: "+settings.reasoningEffort:""].filter(Boolean).join(", ") + " (нажмите, чтобы выключить)" : "Включить режим размышления"; }
+$("#thinkBtn").onclick = ()=>{
+  const on = $("#thinkBtn").classList.contains("on");
+  if(on){ settings.thinkPrompt = false; settings.selfCheck = false; settings.reasoningEffort = "off"; toast("Размышление выключено"); }
+  else { settings.thinkPrompt = true; settings.reasoningEffort = "high"; toast("🧠 Размышление включено (шаг за шагом + высокий ризонинг)"); }
+  saveSettingsLS(); renderThinkBtn();
+};
 // ============ СТАРТ ============
 (async ()=>{
+  $("#search").value = ""; setTimeout(()=>{ if($("#search").value.includes("@")){ $("#search").value=""; renderList(); } }, 800);
   await openDB();
   chats = await dbAll();
   refreshTop();
