@@ -128,7 +128,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
   <aside class="sidebar" id="sidebar">
     <div class="side-top">
       <button class="btn primary" id="newChat">＋ Новый чат</button>
-      <input id="search" placeholder="Поиск по чатам…">
+      <input id="search" type="search" name="chat-search-q" autocomplete="off" autocorrect="off" spellcheck="false" readonly onfocus="this.removeAttribute('readonly')" placeholder="Поиск по чатам…">
     </div>
     <div class="chat-list" id="chatList"></div>
     <div class="side-bottom"><div class="small" id="syncBadge" style="text-align:center;margin:0 0 8px">☁️ Синхронизация выключена</div><button class="btn" style="width:100%" id="openSettings2">⚙️ Настройки</button></div>
@@ -799,6 +799,7 @@ $("#sSyncSettings").onchange = e=>{ localStorage.setItem("aichat_sync_settings",
 
 // ============ СТАРТ ============
 (async ()=>{
+  $("#search").value = ""; setTimeout(()=>{ if($("#search").value.includes("@")){ $("#search").value=""; renderList(); } }, 800);
   await openDB();
   chats = await dbAll();
   refreshTop();
