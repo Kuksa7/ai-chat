@@ -131,7 +131,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
       <input id="search" placeholder="Поиск по чатам…">
     </div>
     <div class="chat-list" id="chatList"></div>
-    <div class="side-bottom"><button class="btn" style="width:100%" id="openSettings2">⚙️ Настройки</button></div>
+    <div class="side-bottom"><div class="small" id="syncBadge" style="text-align:center;margin:0 0 8px">☁️ Синхронизация выключена</div><button class="btn" style="width:100%" id="openSettings2">⚙️ Настройки</button></div>
   </aside>
   <main class="main">
     <div class="topbar">
@@ -164,6 +164,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
       <button class="tab active" data-tab="model">Модель</button>
       <button class="tab" data-tab="keys">API-ключи</button>
       <button class="tab" data-tab="gen">Генерация</button>
+      <button class="tab" data-tab="sync">Синхронизация</button>
       <button class="tab" data-tab="data">Данные</button>
     </div>
     <div class="modal-body">
@@ -184,6 +185,20 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
         <div class="field"><label>Сколько последних сообщений отправлять как контекст (0 — все)</label><input type="number" id="sContext" min="0"></div>
         <div class="field check"><input type="checkbox" id="sStream"><label for="sStream" style="margin:0;color:var(--text)">Потоковый вывод (streaming)</label></div>
         <div class="field check"><input type="checkbox" id="sAutoTitle"><label for="sAutoTitle" style="margin:0;color:var(--text)">Автоназвание чата по первому сообщению</label></div>
+      </div>
+      <div class="pane" data-pane="sync">
+        <div id="syncOut">
+          <div class="field small" style="margin-bottom:12px">Войдите в один и тот же аккаунт на ПК и телефоне — чаты будут синхронизироваться через Supabase.</div>
+          <div class="field"><label>Почта</label><input type="email" id="sbEmail" autocomplete="email" placeholder="you@mail.com"></div>
+          <div class="field"><label>Пароль (от 6 символов)</label><input type="password" id="sbPass" autocomplete="current-password"></div>
+          <div class="inline" style="justify-content:flex-start"><button class="btn primary" id="loginBtn">Войти</button><button class="btn" id="signupBtn">Регистрация</button></div>
+        </div>
+        <div id="syncIn" hidden>
+          <div class="field">Вы вошли как <b id="syncEmail"></b></div>
+          <div class="field check"><input type="checkbox" id="sSyncSettings"><label for="sSyncSettings" style="margin:0;color:var(--text)">Синхронизировать настройки и API-ключи</label></div>
+          <div class="inline" style="justify-content:flex-start"><button class="btn primary" id="syncNowBtn">🔄 Синхронизировать сейчас</button><button class="btn" id="logoutBtn">Выйти</button></div>
+        </div>
+        <div class="small" id="syncMsg" style="margin-top:12px"></div>
       </div>
       <div class="pane" data-pane="data">
         <div class="field"><label>Чаты хранятся в этом браузере (IndexedDB), ключи — в localStorage.</label>
@@ -234,14 +249,14 @@ let settings = loadSettings();
 let chats = [];           // [{id,title,created,updated,provider,model,messages:[]}]
 let currentId = null;
 let pending = [];         // вложения до отправки
-let controller = null;    // AbortController текущего запроса
+let controller = null; let genChatId = null;    // AbortController текущего запроса
 
 function loadSettings(){
   try{ const s = JSON.parse(localStorage.getItem("aichat_settings")||"{}");
     return {...structuredClone(DEFAULTS), ...s, keys:{...DEFAULTS.keys, ...(s.keys||{})}}; }
   catch{ return structuredClone(DEFAULTS); }
 }
-function saveSettingsLS(){ localStorage.setItem("aichat_settings", JSON.stringify(settings)); }
+function saveSettingsLS(){ settings.updatedAt = Date.now(); if(typeof scheduleSync==="function") scheduleSync(); localStorage.setItem("aichat_settings", JSON.stringify(settings)); }
 const baseUrlOf = p => (settings.baseUrls[p] || PROVIDERS[p].baseUrl).replace(/\/+$/,"");
 const modelsOf = p => { const f = settings.fetchedModels[p]; const base = PROVIDERS[p].models.filter(Boolean);
   return f && f.length ? [...new Set([...base, ...f])] : base; };
@@ -319,7 +334,7 @@ function newChat(){
 }
 function selectChat(id){ currentId=id; localStorage.setItem("aichat_current", id); renderList(); renderMessages();
   if(innerWidth<760) $("#sidebar").classList.add("hidden"); }
-async function persist(c){ c.updated = Date.now(); await dbPut(c); }
+async function persist(c){ c.updated = Date.now(); await dbPut(c); scheduleSync(); }
 
 function renderList(){
   const q = $("#search").value.toLowerCase();
@@ -333,7 +348,7 @@ function renderList(){
       el.onclick = e => {
         const a = e.target.dataset.a;
         if(a==="ren"){ const t = prompt("Название чата", c.title); if(t){ c.title=t.trim()||c.title; persist(c); renderList(); updateTitle(); } return; }
-        if(a==="del"){ if(confirm("Удалить чат «"+c.title+"»?")){ dbDel(c.id); chats = chats.filter(x=>x.id!==c.id);
+        if(a==="del"){ if(confirm("Удалить чат «"+c.title+"»?")){ dbDel(c.id); markDeleted(c.id); chats = chats.filter(x=>x.id!==c.id);
           if(currentId===c.id){ chats.length ? selectChat(chats[0].id) : newChat(); } else renderList(); } return; }
         selectChat(c.id);
       };
@@ -499,7 +514,7 @@ async function generate(){
   const el = $("#messages .msg-wrap").lastElementChild; const bodyEl = el.querySelector(".body");
   if(!key){ msg.error = `Не указан API-ключ для «${PROVIDERS[p].name}». Откройте ⚙️ Настройки → API-ключи.`; bodyEl.innerHTML = assistantBody(msg); await persist(c); return; }
 
-  controller = new AbortController(); updateSendBtn();
+  controller = new AbortController(); genChatId = c.id; updateSendBtn();
   bodyEl.classList.add("cursor");
   const box = $("#messages");
   const stick = () => box.scrollHeight - box.scrollTop - box.clientHeight < 120;
@@ -641,8 +656,139 @@ $("#importInput").onchange = async e=>{
   }catch{ toast("Неверный файл"); }
   e.target.value="";
 };
-$("#clearAll").onclick = async ()=>{ if(!confirm("Удалить ВСЕ чаты без возможности восстановления?")) return; await dbClear(); chats=[]; closeS(); newChat(); };
+$("#clearAll").onclick = async ()=>{ if(!confirm("Удалить ВСЕ чаты без возможности восстановления?")) return; chats.forEach(c=>markDeleted(c.id)); await dbClear(); chats=[]; closeS(); newChat(); };
 $("#resetSettings").onclick = ()=>{ if(!confirm("Сбросить настройки и все API-ключи?")) return; localStorage.removeItem("aichat_settings"); settings = loadSettings(); refreshTop(); closeS(); toast("Сброшено"); };
+
+// ============ СИНХРОНИЗАЦИЯ (Supabase) ============
+const SB_URL = "https://zzxwasqopefigyqodrjj.supabase.co";
+const SB_KEY = "sb_publishable_zuKRz4-RhcH6PXiMOXCd1w_rwqgvJfJ";
+let sb = null, sbUser = null, syncing = false, syncAgain = false, syncTimer = null;
+const getTomb = () => { try{ return JSON.parse(localStorage.getItem("aichat_tomb")||"{}"); }catch{ return {}; } };
+const setTomb = t => localStorage.setItem("aichat_tomb", JSON.stringify(t));
+const syncSettingsOn = () => localStorage.getItem("aichat_sync_settings") !== "0";
+function markDeleted(id){ const t = getTomb(); t[id] = Date.now(); setTomb(t); scheduleSync(); }
+function scheduleSync(){ if(!sbUser) return; clearTimeout(syncTimer); syncTimer = setTimeout(syncNow, 1500); }
+function setBadge(t){ $("#syncBadge").textContent = t; }
+function syncMsg(t, err){ const el = $("#syncMsg"); el.textContent = t||""; el.style.color = err ? "var(--danger)" : "var(--muted)"; }
+function loadSB(){ return new Promise((res,rej)=>{ if(window.supabase) return res();
+  const s = document.createElement("script"); s.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
+  s.onload = res; s.onerror = ()=>rej(new Error("нет связи с Supabase")); document.head.appendChild(s); }); }
+function renderSyncUI(){
+  $("#syncOut").hidden = !!sbUser; $("#syncIn").hidden = !sbUser;
+  if(sbUser) $("#syncEmail").textContent = sbUser.email; else setBadge("☁️ Синхронизация выключена");
+  $("#sSyncSettings").checked = syncSettingsOn();
+}
+const ruErr = m => ({
+  "Invalid login credentials":"Неверная почта или пароль",
+  "Email not confirmed":"Почта не подтверждена — откройте письмо от Supabase и нажмите ссылку",
+  "User already registered":"Такой пользователь уже есть — нажмите «Войти»",
+  "Password should be at least 6 characters.":"Пароль должен быть не короче 6 символов"
+}[m] || m);
+
+async function initSync(){
+  try{
+    await loadSB();
+    sb = supabase.createClient(SB_URL, SB_KEY, {auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:true}});
+    const {data:{session}} = await sb.auth.getSession();
+    sbUser = session?.user || null; renderSyncUI();
+    sb.auth.onAuthStateChange((ev, s)=>{ const was = sbUser?.id; sbUser = s?.user || null; renderSyncUI(); if(sbUser && sbUser.id !== was) syncNow(); });
+    if(sbUser) syncNow();
+    setInterval(()=>{ if(sbUser && !document.hidden) syncNow(); }, 30000);
+    document.addEventListener("visibilitychange", ()=>{ if(!document.hidden && sbUser) syncNow(); });
+  }catch(e){ setBadge("⚠️ Синхронизация недоступна"); syncMsg(e.message, true); }
+}
+
+async function syncSettings(){
+  const {data, error} = await sb.from("user_settings").select("data,updated_at").maybeSingle();
+  if(error) throw error;
+  const lu = settings.updatedAt || 0;
+  if(data && data.updated_at > lu){
+    const d = data.data || {};
+    settings = {...structuredClone(DEFAULTS), ...d, keys:{...DEFAULTS.keys, ...(d.keys||{})}, updatedAt:data.updated_at};
+    localStorage.setItem("aichat_settings", JSON.stringify(settings)); refreshTop();
+  } else if(lu && (!data || lu > data.updated_at)){
+    const {error:e2} = await sb.from("user_settings").upsert({user_id:sbUser.id, data:settings, updated_at:lu});
+    if(e2) throw e2;
+  }
+}
+
+async function syncNow(){
+  if(!sb || !sbUser) return;
+  if(syncing){ syncAgain = true; return; }
+  syncing = true; setBadge("🔄 Синхронизация…");
+  try{
+    const {data:remote, error} = await sb.from("chats").select("id,updated_at,deleted");
+    if(error) throw error;
+    const rmap = new Map(remote.map(r=>[r.id, r]));
+    const tomb = getTomb(); let changed = false; const busy = controller ? genChatId : null;
+    // 1. скачать новое / удалить удалённое на других устройствах
+    const need = [];
+    for(const r of remote){
+      const l = chats.find(c=>c.id===r.id);
+      if(r.deleted){
+        if(l && l.updated <= r.updated_at && l.id !== busy){ await dbDel(l.id); chats = chats.filter(c=>c.id!==l.id); changed = true; }
+        continue;
+      }
+      if(tomb[r.id] || r.id === busy) continue;
+      if(!l || r.updated_at > l.updated) need.push(r.id);
+    }
+    for(let i=0; i<need.length; i+=10){
+      const {data, error:e} = await sb.from("chats").select("id,data,updated_at").in("id", need.slice(i,i+10));
+      if(e) throw e;
+      for(const row of data){
+        const c = {...row.data, id:row.id, updated:row.updated_at};
+        await dbPut(c); const k = chats.findIndex(x=>x.id===c.id); k>=0 ? chats[k]=c : chats.push(c); changed = true;
+      }
+    }
+    // 2. отправить удаления
+    const tIds = Object.keys(tomb);
+    if(tIds.length){
+      const {error:e} = await sb.from("chats").upsert(tIds.map(id=>({user_id:sbUser.id, id, data:{}, updated_at:tomb[id], deleted:true})), {onConflict:"user_id,id"});
+      if(e) throw e;
+      const t2 = getTomb(); tIds.forEach(id=>{ if(t2[id]===tomb[id]) delete t2[id]; }); setTomb(t2);
+    }
+    // 3. отправить изменённые локальные чаты
+    const push = chats.filter(c => c.messages.length && c.id !== busy && !getTomb()[c.id] &&
+      (!rmap.has(c.id) || c.updated > rmap.get(c.id).updated_at));
+    for(let i=0; i<push.length; i+=5){
+      const {error:e} = await sb.from("chats").upsert(push.slice(i,i+5).map(c=>({user_id:sbUser.id, id:c.id, data:c, updated_at:c.updated, deleted:false})), {onConflict:"user_id,id"});
+      if(e) throw e;
+    }
+    // 4. настройки и ключи
+    if(syncSettingsOn()) await syncSettings();
+    if(changed && !controller){
+      if(!current()){ if(chats.length){ chats.sort((a,b)=>b.updated-a.updated); currentId = chats[0].id; } else { syncing=false; newChat(); return; } }
+      renderList(); renderMessages();
+    }
+    setBadge("☁️ Синхронизировано · " + new Date().toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"}));
+    syncMsg("");
+  }catch(e){ setBadge("⚠️ Ошибка синхронизации"); syncMsg(e.message || String(e), true); console.error(e); }
+  finally{ syncing = false; if(syncAgain){ syncAgain = false; scheduleSync(); } }
+}
+
+$("#loginBtn").onclick = async ()=>{
+  const email = $("#sbEmail").value.trim(), password = $("#sbPass").value;
+  if(!email || !password) return syncMsg("Введите почту и пароль", true);
+  if(!sb) return syncMsg("Supabase не загрузился, проверьте интернет", true);
+  syncMsg("Вход…");
+  const {error} = await sb.auth.signInWithPassword({email, password});
+  if(error) return syncMsg(ruErr(error.message), true);
+  $("#sbPass").value = ""; syncMsg("Готово! Чаты синхронизируются.");
+};
+$("#signupBtn").onclick = async ()=>{
+  const email = $("#sbEmail").value.trim(), password = $("#sbPass").value;
+  if(!email || !password) return syncMsg("Введите почту и пароль", true);
+  if(!sb) return syncMsg("Supabase не загрузился, проверьте интернет", true);
+  syncMsg("Регистрация…");
+  const redirect = location.protocol.startsWith("http") ? location.href.split("#")[0].split("?")[0] : undefined;
+  const {data, error} = await sb.auth.signUp({email, password, options: redirect ? {emailRedirectTo:redirect} : {}});
+  if(error) return syncMsg(ruErr(error.message), true);
+  if(!data.session) syncMsg("Письмо отправлено на " + email + ". Подтвердите почту по ссылке, затем нажмите «Войти».");
+  else syncMsg("Аккаунт создан, вы вошли.");
+};
+$("#logoutBtn").onclick = async ()=>{ await sb.auth.signOut(); syncMsg("Вы вышли. Чаты на этом устройстве остались."); };
+$("#syncNowBtn").onclick = ()=>syncNow();
+$("#sSyncSettings").onchange = e=>{ localStorage.setItem("aichat_sync_settings", e.target.checked ? "1" : "0"); if(e.target.checked) scheduleSync(); };
 
 // ============ СТАРТ ============
 (async ()=>{
@@ -654,6 +800,7 @@ $("#resetSettings").onclick = ()=>{ if(!confirm("Сбросить настрой
   if(!currentId) newChat(); else { renderList(); renderMessages(); }
   if(innerWidth<760) $("#sidebar").classList.add("hidden");
   updateSendBtn(); input.focus();
+  initSync();
 })();
 </script>
 </body>
