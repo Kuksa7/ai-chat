@@ -662,6 +662,7 @@ $("#resetSettings").onclick = ()=>{ if(!confirm("Сбросить настрой
 // ============ СИНХРОНИЗАЦИЯ (Supabase) ============
 const SB_URL = "https://zzxwasqopefigyqodrjj.supabase.co";
 const SB_KEY = "sb_publishable_zuKRz4-RhcH6PXiMOXCd1w_rwqgvJfJ";
+let syncStarted = 0;
 let sb = null, sbUser = null, syncing = false, syncAgain = false, syncTimer = null;
 const getTomb = () => { try{ return JSON.parse(localStorage.getItem("aichat_tomb")||"{}"); }catch{ return {}; } };
 const setTomb = t => localStorage.setItem("aichat_tomb", JSON.stringify(t));
@@ -688,10 +689,10 @@ const ruErr = m => ({
 async function initSync(){
   try{
     await loadSB();
-    sb = supabase.createClient(SB_URL, SB_KEY, {auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:true}});
+    sb = supabase.createClient(SB_URL, SB_KEY, {auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:true, lock: async (name, timeout, fn) => await fn()}});
     const {data:{session}} = await sb.auth.getSession();
     sbUser = session?.user || null; renderSyncUI();
-    sb.auth.onAuthStateChange((ev, s)=>{ const was = sbUser?.id; sbUser = s?.user || null; renderSyncUI(); if(sbUser && sbUser.id !== was) syncNow(); });
+    sb.auth.onAuthStateChange((ev, s)=>{ const was = sbUser?.id; sbUser = s?.user || null; renderSyncUI(); if(sbUser && sbUser.id !== was) setTimeout(()=>syncNow(), 50); });
     if(sbUser) syncNow();
     setInterval(()=>{ if(sbUser && !document.hidden) syncNow(); }, 30000);
     document.addEventListener("visibilitychange", ()=>{ if(!document.hidden && sbUser) syncNow(); });
@@ -706,17 +707,20 @@ async function syncSettings(){
     const d = data.data || {};
     settings = {...structuredClone(DEFAULTS), ...d, keys:{...DEFAULTS.keys, ...(d.keys||{})}, updatedAt:data.updated_at};
     localStorage.setItem("aichat_settings", JSON.stringify(settings)); refreshTop();
-  } else if(lu && (!data || lu > data.updated_at)){
-    const {error:e2} = await sb.from("user_settings").upsert({user_id:sbUser.id, data:settings, updated_at:lu});
+  } else if(!data || lu > data.updated_at){
+    if(!lu){ settings.updatedAt = Date.now(); localStorage.setItem("aichat_settings", JSON.stringify(settings)); }
+    const {error:e2} = await sb.from("user_settings").upsert({user_id:sbUser.id, data:settings, updated_at:settings.updatedAt});
     if(e2) throw e2;
   }
 }
 
 async function syncNow(){
   if(!sb || !sbUser) return;
-  if(syncing){ syncAgain = true; return; }
-  syncing = true; setBadge("🔄 Синхронизация…");
-  try{
+  if(syncing && Date.now() - syncStarted < 30000){ syncAgain = true; return; }
+  syncing = true; syncStarted = Date.now(); setBadge("🔄 Синхронизация…");
+  const btn = $("#syncNowBtn"); btn.disabled = true; btn.textContent = "🔄 Синхронизация…";
+  const withTimeout = (pr, ms=25000) => Promise.race([pr, new Promise((_,rej)=>setTimeout(()=>rej(new Error("Supabase не отвечает (таймаут). Попробуйте ещё раз.")), ms))]);
+  const run = async () => {
     const {data:remote, error} = await sb.from("chats").select("id,updated_at,deleted");
     if(error) throw error;
     const rmap = new Map(remote.map(r=>[r.id, r]));
@@ -757,13 +761,16 @@ async function syncNow(){
     // 4. настройки и ключи
     if(syncSettingsOn()) await syncSettings();
     if(changed && !controller){
-      if(!current()){ if(chats.length){ chats.sort((a,b)=>b.updated-a.updated); currentId = chats[0].id; } else { syncing=false; newChat(); return; } }
+      if(!current()){ if(chats.length){ chats.sort((a,b)=>b.updated-a.updated); currentId = chats[0].id; } else { newChat(); } }
       renderList(); renderMessages();
     }
+  };
+  try{
+    await withTimeout(run());
     setBadge("☁️ Синхронизировано · " + new Date().toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"}));
-    syncMsg("");
+    syncMsg("✅ Синхронизировано: чатов на этом устройстве — " + chats.filter(c=>c.messages.length).length);
   }catch(e){ setBadge("⚠️ Ошибка синхронизации"); syncMsg(e.message || String(e), true); console.error(e); }
-  finally{ syncing = false; if(syncAgain){ syncAgain = false; scheduleSync(); } }
+  finally{ syncing = false; btn.disabled = false; btn.textContent = "🔄 Синхронизировать сейчас"; if(syncAgain){ syncAgain = false; scheduleSync(); } }
 }
 
 $("#loginBtn").onclick = async ()=>{
