@@ -1,0 +1,28 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ai-chat-agent",
+  "main": "worker.mjs",
+  "compatibility_date": "2025-04-01",
+  "workers_dev": true,
+  "vars": {
+    "ALLOWED_ORIGIN": "https://kuksa7.github.io",
+    "GITHUB_OWNER": "Kuksa7",
+    "SOURCE_REPO": "ai-chat"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "AGENT_STATE",
+        "class_name": "AgentState"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "AgentState"
+      ]
+    }
+  ]
+}
