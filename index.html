@@ -160,13 +160,11 @@ button:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px sol
 }
 @media(prefers-reduced-motion:reduce){.cursor::after{animation:none}.sidebar,.toast{transition:none}}
 </style>
-<link rel="stylesheet" href="agent.css">
 </head>
 <body>
 <div class="app">
   <aside class="sidebar" id="sidebar">
     <div class="side-top">
-      <button class="btn" id="agentSettingsBtn">🤖 Агент GitHub</button>
       <button class="btn primary" id="newChat">＋ Новый чат</button>
       <input id="search" type="search" name="chat-search-q" autocomplete="off" autocorrect="off" spellcheck="false" readonly onfocus="this.removeAttribute('readonly')" placeholder="Поиск по чатам…">
     </div>
@@ -312,11 +310,13 @@ const PROVIDERS = {
       "gpt-6.1-terra",
       "claude-haiku-5-5",
       "deepseek-v4.1-flash-1017",
-      "claude-sonnet-5-5","nemotron-3-ultra","glm-5.3","kimi-k3"]}
+      "claude-sonnet-5-5","nemotron-3-ultra","glm-5.3","kimi-k3"]},
+  ghostly: { name: "Anymodel Ghostly", baseUrl: "https://ai-chat.kuksinaalena77.workers.dev/anymodel/v1", models: [
+      "deepseek-v4.1-flash-1017","gpt-6-luna","claude-sonnet-5-5","gpt-6.1-terra"]}
 };
 const DEFAULTS = {
   provider:"anymodel", model:"cx/gpt-5.6-luna", customModel:"",
-  keys:{anymodel:"",openrouter:"",nyxos:"",xkiro:"",tooken:"",darkapi:"",tavily:""},
+  keys:{anymodel:"",openrouter:"",nyxos:"",xkiro:"",tooken:"",darkapi:"",ghostly:"",tavily:""},
   baseUrls:{}, fetchedModels:{},
   system:"", temperature:0.7, maxTokens:"", context:0, stream:true, autoTitle:true, reasoningEffort:"off", thinkPrompt:false, selfCheck:false,
   webSearch:false, autoReadUrls:true, webEngine:"auto"
@@ -492,7 +492,6 @@ function assistantBody(m){
   if(m.reasoning || think) h += `<details class="think"${open}><summary>💭 Рассуждения${m._live && !rest.trim() ? " — думаю…" : ""}${m.checking ? " · 🔍 проверяю ответ…" : ""}</summary><div>${esc((m.reasoning||"")+(think?"\n"+think:""))}</div></details>`;
   if(m.webWarning) h += `<div class="error">⚠️ ${esc(m.webWarning)}</div>`;
   if(m.error) h += `<div class="error">⚠️ ${esc(m.error)}</div>`;
-  if(m.agentLog?.length) h += `<details class="think"><summary>GitHub: журнал действий</summary><div>${esc(m.agentLog.join("\n"))}</div></details>`;
   h += md(rest);
   return h;
 }
@@ -504,7 +503,7 @@ function msgEl(m, idx){
     <div class="bubble">${attsHtml(m.attachments)}<div class="body">${body}</div>
     <div class="meta">${m.model?`<span>${esc(m.model)}</span>`:""}<span>${m.time?fmtTime(m.time):""}</span>
       <button data-a="copy">Копировать</button>
-      ${m.role==="assistant"?(m.agent?"":`<button data-a="regen">↻ Повторить</button>`):(m.agent?"":`<button data-a="edit">✏️ Изменить</button>`)}
+      ${m.role==="assistant"?`<button data-a="regen">↻ Повторить</button>`:`<button data-a="edit">✏️ Изменить</button>`}
       <button data-a="del">Удалить</button></div></div>`;
   return el;
 }
@@ -516,7 +515,7 @@ $("#messages").addEventListener("click", e=>{
   if(t.classList.contains("copy-code")){ copyText(t.closest("pre").querySelector("code").innerText); toast("Код скопирован"); return; }
   const a = t.dataset.a; if(!a) return;
   const idx = +t.closest(".msg").dataset.idx; const c = current(); const m = c.messages[idx];
-  if(controller || window.githubAgentBusy) return toast("Дождитесь окончания ответа");
+  if(controller) return toast("Дождитесь окончания ответа");
   if(a==="copy"){ copyText(m.content||""); toast("Скопировано"); }
   if(a==="del"){ c.messages.splice(idx,1); persist(c); renderMessages(); }
   if(a==="regen"){ c.messages.splice(idx); persist(c); renderMessages(); generate(); }
@@ -595,9 +594,8 @@ input.addEventListener("keydown", e=>{ if(e.key==="Enter" && !e.shiftKey && !e.i
 $("#sendBtn").onclick = ()=> controller ? controller.abort() : send();
 
 async function send(){
-  if(window.githubAgentEnabled) return window.sendGitHubAgent();
   const text = input.value.trim();
-  if(controller || window.githubAgentBusy || (!text && !pending.length)) return;
+  if(controller || (!text && !pending.length)) return;
   if(!current()) newChat();
   const c = current();
   c.messages.push({role:"user", content:text, attachments:pending, time:Date.now()});
@@ -938,7 +936,6 @@ async function callModel({p, key, model, messages, signal, onDelta, useReasoning
 }
 
 async function generate(){
-  if(window.githubAgentBusy) return toast("Дождитесь завершения работы агента");
   const c = current(); const p = settings.provider; const key = settings.keys[p]; const model = activeModel();
   const msg = {role:"assistant", content:"", reasoning:"", model, time:Date.now()};
   c.messages.push(msg);
@@ -1282,6 +1279,5 @@ $("#webBtn").onclick = ()=>{
   initSync();
 })();
 </script>
-<script src="agent.js"></script>
 </body>
 </html>
