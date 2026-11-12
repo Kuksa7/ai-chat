@@ -1278,6 +1278,1001 @@ $("#webBtn").onclick = ()=>{
   updateSendBtn(); input.focus();
   initSync();
 })();
+   </script>
+   <script src="agent.js"></script>
+
+<style>
+/* Кнопка и изображение */
+.generated-image {
+  margin-top: 10px;
+}
+
+.generated-image img {
+  display: block;
+  max-width: min(100%, 640px);
+  max-height: 70vh;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: zoom-in;
+}
+
+.generated-image .image-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.generated-image .image-actions a {
+  display: inline-block;
+  color: #fff;
+  text-decoration: none;
+}
+
+.image-status {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+@media (max-width: 760px) {
+  #imageBtn {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    padding: 6px;
+    flex-shrink: 0;
+  }
+
+  .composer .row {
+    flex-wrap: wrap;
+  }
+
+  .composer .row textarea {
+    flex: 1 1 120px;
+  }
+}
+</style>
+
+<script>
+(() => {
+  "use strict";
+
+  /*
+   * Настройки изображений хранятся отдельно от настроек чата.
+   * Сами картинки нигде постоянно не сохраняются.
+   */
+  const CONFIG_KEY = "aichat_image_generation_config";
+
+  const DEFAULT_CONFIG = {
+    provider: "anymodel_worker",
+    model: "",
+    apiType: "images",
+    endpoint: "/images/generations"
+  };
+
+  /*
+   * Отдельный вариант для указанного Worker.
+   * Использует тот же ключ, что и обычный anymodel.
+   */
+  const WORKER_PROVIDER = {
+    id: "anymodel_worker",
+    name: "anymodel через Worker",
+    baseUrl: "https://ai-chat.kuksinaalena77.workers.dev/anymodel/v1",
+    keyProvider: "anymodel"
+  };
+
+  /*
+   * Хранение только в памяти вкладки:
+   * message ID -> { objectUrl, filename }.
+   */
+  const temporaryImages = new Map();
+
+  let imageMode = false;
+  let imageBusy = false;
+
+  function loadConfig() {
+    try {
+      const value = JSON.parse(localStorage.getItem(CONFIG_KEY) || "{}");
+
+      return {
+        ...DEFAULT_CONFIG,
+        ...value
+      };
+    } catch {
+      return { ...DEFAULT_CONFIG };
+    }
+  }
+
+  function saveConfig(config) {
+    localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+  }
+
+  function providerOptions() {
+    const options = Object.entries(PROVIDERS).map(([id, provider]) => ({
+      id,
+      name: provider.name,
+      keyProvider: id
+    }));
+
+    options.push(WORKER_PROVIDER);
+    return options;
+  }
+
+  function findProvider(id) {
+    if (id === WORKER_PROVIDER.id) {
+      return WORKER_PROVIDER;
+    }
+
+    if (!PROVIDERS[id]) {
+      return null;
+    }
+
+    return {
+      id,
+      name: PROVIDERS[id].name,
+      keyProvider: id
+    };
+  }
+
+  function providerBaseUrl(provider) {
+    if (provider.id === WORKER_PROVIDER.id) {
+      return provider.baseUrl.replace(/\/+$/, "");
+    }
+
+    return baseUrlOf(provider.id);
+  }
+
+  function validateEndpoint(endpoint) {
+    /*
+     * Только путь относительно выбранного Base URL.
+     * Абсолютный URL здесь вводить нельзя, чтобы случайно
+     * не отправить API-ключ на другой адрес.
+     */
+    if (
+      !endpoint.startsWith("/") ||
+      endpoint.startsWith("//") ||
+      endpoint.includes("\\") ||
+      /[?#]/.test(endpoint)
+    ) {
+      throw new Error(
+        "Путь API должен начинаться с одного / и не содержать ? или #."
+      );
+    }
+
+    return endpoint;
+  }
+
+  // ========================================
+  // Кнопка режима изображения
+  // ========================================
+
+  const imageBtn = document.createElement("button");
+
+  imageBtn.type = "button";
+  imageBtn.id = "imageBtn";
+  imageBtn.className = "icon-btn think-toggle";
+  imageBtn.textContent = "🎨";
+  imageBtn.setAttribute("aria-label", "Генерация изображений");
+  imageBtn.setAttribute("aria-pressed", "false");
+
+  document.querySelector("#webBtn")
+    .insertAdjacentElement("afterend", imageBtn);
+
+  function renderImageButton() {
+    imageBtn.classList.toggle("on", imageMode);
+    imageBtn.setAttribute("aria-pressed", String(imageMode));
+
+    imageBtn.title = imageMode
+      ? "Генерация изображений включена"
+      : "Включить генерацию изображений";
+  }
+
+  imageBtn.addEventListener("click", () => {
+    imageMode = !imageMode;
+    renderImageButton();
+
+    toast(
+      imageMode
+        ? "🎨 Генерация изображений включена"
+        : "Генерация изображений выключена"
+    );
+  });
+
+  renderImageButton();
+
+  // ========================================
+  // Настройки изображений
+  // ========================================
+
+  const generationPane = document.querySelector('[data-pane="gen"]');
+  const settingsBlock = document.createElement("div");
+
+  settingsBlock.className = "field";
+  settingsBlock.style.borderTop = "1px solid var(--border)";
+  settingsBlock.style.paddingTop = "14px";
+
+  settingsBlock.innerHTML = `
+    <label for="imageProvider">🎨 Провайдер изображений</label>
+    <select id="imageProvider"></select>
+
+    <div class="small">
+      Используется API-ключ выбранного провайдера из вкладки «API-ключи».
+      Для anymodel через Worker используется ключ anymodel.org.
+    </div>
+
+    <label for="imageModel" style="margin-top:12px">
+      ID модели генерации изображений
+    </label>
+    <input
+      id="imageModel"
+      type="text"
+      autocomplete="off"
+      placeholder="Введите ID модели провайдера"
+    >
+
+    <div class="small">
+      Укажите модель, которая действительно поддерживает создание картинок.
+      Доступность и стоимость определяет провайдер.
+    </div>
+
+    <label for="imageApiType" style="margin-top:12px">
+      Тип API
+    </label>
+    <select id="imageApiType">
+      <option value="images">
+        Images API — /images/generations
+      </option>
+      <option value="chat">
+        Chat API — /chat/completions
+      </option>
+    </select>
+
+    <label for="imageEndpoint" style="margin-top:12px">
+      Путь относительно Base URL
+    </label>
+    <input
+      id="imageEndpoint"
+      type="text"
+      autocomplete="off"
+      placeholder="/images/generations"
+    >
+
+    <div class="small" id="imageEndpointHelp"></div>
+
+    <div class="small">
+      Изображение находится только в памяти вкладки.
+      После перезагрузки страницы его нужно генерировать заново.
+    </div>
+  `;
+
+  generationPane.appendChild(settingsBlock);
+
+  const providerInput = settingsBlock.querySelector("#imageProvider");
+  const modelInput = settingsBlock.querySelector("#imageModel");
+  const apiTypeInput = settingsBlock.querySelector("#imageApiType");
+  const endpointInput = settingsBlock.querySelector("#imageEndpoint");
+  const endpointHelp = settingsBlock.querySelector("#imageEndpointHelp");
+
+  function fillProviders(selected) {
+    providerInput.innerHTML = "";
+
+    for (const provider of providerOptions()) {
+      const option = document.createElement("option");
+      option.value = provider.id;
+      option.textContent = provider.name;
+      providerInput.appendChild(option);
+    }
+
+    providerInput.value = findProvider(selected)
+      ? selected
+      : DEFAULT_CONFIG.provider;
+  }
+
+  function updateEndpointHelp() {
+    const provider = findProvider(providerInput.value);
+
+    if (!provider) {
+      endpointHelp.textContent = "";
+      return;
+    }
+
+    const base = providerBaseUrl(provider);
+    const endpoint = endpointInput.value.trim() || (
+      apiTypeInput.value === "chat"
+        ? "/chat/completions"
+        : "/images/generations"
+    );
+
+    endpointHelp.textContent = `Адрес запроса: ${base}${endpoint}`;
+  }
+
+  function populateSettings() {
+    const config = loadConfig();
+
+    fillProviders(config.provider);
+    modelInput.value = config.model || "";
+    apiTypeInput.value = config.apiType === "chat" ? "chat" : "images";
+    endpointInput.value = config.endpoint || (
+      apiTypeInput.value === "chat"
+        ? "/chat/completions"
+        : "/images/generations"
+    );
+
+    updateEndpointHelp();
+  }
+
+  providerInput.addEventListener("change", updateEndpointHelp);
+  endpointInput.addEventListener("input", updateEndpointHelp);
+
+  apiTypeInput.addEventListener("change", () => {
+    endpointInput.value = apiTypeInput.value === "chat"
+      ? "/chat/completions"
+      : "/images/generations";
+
+    updateEndpointHelp();
+  });
+
+  document.querySelector("#openSettings")
+    .addEventListener("click", populateSettings);
+
+  document.querySelector("#openSettings2")
+    .addEventListener("click", populateSettings);
+
+  /*
+   * Исходный обработчик сохранения настроек остаётся на месте.
+   * Эти поля сохраняются отдельно.
+   */
+  document.querySelector("#saveSettings")
+    .addEventListener("click", () => {
+      try {
+        const provider = findProvider(providerInput.value);
+
+        if (!provider) {
+          throw new Error("Выбран неизвестный провайдер.");
+        }
+
+        const apiType = apiTypeInput.value === "chat" ? "chat" : "images";
+
+        const endpoint = validateEndpoint(
+          endpointInput.value.trim() || (
+            apiType === "chat"
+              ? "/chat/completions"
+              : "/images/generations"
+          )
+        );
+
+        saveConfig({
+          provider: provider.id,
+          model: modelInput.value.trim(),
+          apiType,
+          endpoint
+        });
+      } catch (err) {
+        console.error(err);
+        toast(err.message || "Не удалось сохранить настройки картинок");
+      }
+    });
+
+  populateSettings();
+
+  // ========================================
+  // Временное хранение изображения
+  // ========================================
+
+  function removeTemporaryImage(messageId) {
+    const item = temporaryImages.get(messageId);
+
+    if (!item) return;
+
+    URL.revokeObjectURL(item.objectUrl);
+    temporaryImages.delete(messageId);
+  }
+
+  function imageExtension(type) {
+    switch ((type || "").toLowerCase().split(";")[0]) {
+      case "image/jpeg":
+        return "jpg";
+      case "image/webp":
+        return "webp";
+      case "image/gif":
+        return "gif";
+      case "image/png":
+      default:
+        return "png";
+    }
+  }
+
+  function base64ToBlob(value) {
+    let contentType = "image/png";
+    let encoded = value;
+
+    const match = value.match(
+      /^data:(image\/[a-z0-9.+-]+);base64,([\s\S]+)$/i
+    );
+
+    if (match) {
+      contentType = match[1].toLowerCase();
+      encoded = match[2];
+    }
+
+    if (!/^image\/(png|jpeg|webp|gif)$/.test(contentType)) {
+      throw new Error(
+        "Неподдерживаемый формат изображения: " + contentType
+      );
+    }
+
+    let binary;
+
+    try {
+      binary = atob(encoded.replace(/\s/g, ""));
+    } catch {
+      throw new Error("Провайдер вернул некорректные данные изображения.");
+    }
+
+    const bytes = new Uint8Array(binary.length);
+
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+
+    return new Blob([bytes], { type: contentType });
+  }
+
+  async function fetchImageBlob(url, signal) {
+    let parsed;
+
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new Error("Провайдер вернул некорректную ссылку на картинку.");
+    }
+
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      throw new Error("Неподдерживаемый протокол ссылки на картинку.");
+    }
+
+    /*
+     * API-ключ на адрес картинки не отправляется.
+     * Если сервер картинки запрещает CORS, загрузка не получится.
+     */
+    const response = await fetch(parsed.href, { signal });
+
+    if (!response.ok) {
+      throw new Error(
+        "Не удалось загрузить картинку: HTTP " + response.status
+      );
+    }
+
+    const blob = await response.blob();
+    const type = blob.type.toLowerCase().split(";")[0];
+
+    if (!/^image\/(png|jpeg|webp|gif)$/.test(type)) {
+      throw new Error(
+        "Неподдерживаемый тип файла: " + (blob.type || "не указан")
+      );
+    }
+
+    return blob;
+  }
+
+  async function imageValueToBlob(value, signal) {
+    if (typeof value !== "string" || !value) {
+      throw new Error("Провайдер вернул пустое изображение.");
+    }
+
+    if (value.startsWith("data:image/")) {
+      return base64ToBlob(value);
+    }
+
+    if (/^https?:\/\//i.test(value)) {
+      return fetchImageBlob(value, signal);
+    }
+
+    /*
+     * В Images API b64_json обычно содержит Base64 без data:.
+     */
+    return base64ToBlob(value);
+  }
+
+  async function extractImageBlob(data, apiType, signal) {
+    if (apiType === "images") {
+      const item = data?.data?.[0];
+
+      if (!item) {
+        throw new Error(
+          "В ответе нет data[0]. Проверьте тип API и модель."
+        );
+      }
+
+      if (typeof item.b64_json === "string" && item.b64_json) {
+        return imageValueToBlob(item.b64_json, signal);
+      }
+
+      if (typeof item.url === "string" && item.url) {
+        return imageValueToBlob(item.url, signal);
+      }
+
+      throw new Error(
+        "В data[0] нет b64_json или url. " +
+        "Формат ответа провайдера отличается от поддерживаемого."
+      );
+    }
+
+    const message = data?.choices?.[0]?.message || {};
+    const image = message.images?.[0];
+
+    const value =
+      image?.image_url?.url ||
+      image?.url ||
+      (typeof image === "string" ? image : "");
+
+    if (value) {
+      return imageValueToBlob(value, signal);
+    }
+
+    const text = typeof message.content === "string"
+      ? message.content.trim()
+      : "";
+
+    throw new Error(
+      text
+        ? "Модель вернула текст вместо картинки: " + text.slice(0, 300)
+        : "В ответе нет message.images. Проверьте модель и тип API."
+    );
+  }
+
+  function storeTemporaryImage(messageId, blob) {
+    removeTemporaryImage(messageId);
+
+    temporaryImages.set(messageId, {
+      objectUrl: URL.createObjectURL(blob),
+      filename:
+        `ai-image-${Date.now()}.${imageExtension(blob.type)}`
+    });
+  }
+
+  // ========================================
+  // Отображение изображения в текущем чате
+  // ========================================
+
+  function renderTemporaryImages() {
+    const chat = current();
+    const box = document.querySelector("#messages");
+
+    if (!chat || !box) return;
+
+    for (const element of box.querySelectorAll(".msg")) {
+      const index = Number(element.dataset.idx);
+      const message = chat.messages[index];
+
+      if (!message?.imageGenerationId) continue;
+
+      const bubble = element.querySelector(".bubble");
+      if (!bubble) continue;
+
+      if (bubble.querySelector(".generated-image")) continue;
+
+      const item = temporaryImages.get(message.imageGenerationId);
+      const container = document.createElement("div");
+
+      container.className = "generated-image";
+
+      if (!item) {
+        container.classList.add("image-status");
+        container.textContent =
+          "Картинка не сохраняется в истории. " +
+          "Если страница была перезагружена, создайте её заново.";
+      } else {
+        const image = document.createElement("img");
+
+        image.src = item.objectUrl;
+        image.alt = "Сгенерированное изображение";
+        image.title = "Открыть изображение";
+        image.loading = "lazy";
+
+        image.addEventListener("click", () => {
+          document.querySelector("#lightboxImg").src = item.objectUrl;
+          document.querySelector("#lightbox").classList.add("show");
+        });
+
+        const actions = document.createElement("div");
+        actions.className = "image-actions";
+
+        const download = document.createElement("a");
+        download.className = "btn primary";
+        download.href = item.objectUrl;
+        download.download = item.filename;
+        download.textContent = "⬇️ Скачать";
+
+        actions.appendChild(download);
+        container.appendChild(image);
+        container.appendChild(actions);
+      }
+
+      const meta = bubble.querySelector(".meta");
+
+      if (meta) {
+        bubble.insertBefore(container, meta);
+      } else {
+        bubble.appendChild(container);
+      }
+    }
+  }
+
+  const messagesBox = document.querySelector("#messages");
+
+  /*
+   * Исходная renderMessages() пересоздаёт содержимое чата.
+   * Наблюдатель добавляет временные картинки обратно в DOM.
+   */
+  const observer = new MutationObserver(renderTemporaryImages);
+
+  observer.observe(messagesBox, {
+    childList: true,
+    subtree: true
+  });
+
+  // ========================================
+  // Запрос к выбранному провайдеру
+  // ========================================
+
+  async function requestImage(prompt, signal) {
+    const config = loadConfig();
+    const provider = findProvider(config.provider);
+
+    if (!provider) {
+      throw new Error("Выбран неизвестный провайдер изображений.");
+    }
+
+    const key = (settings.keys[provider.keyProvider] || "").trim();
+
+    if (!key) {
+      throw new Error(
+        `Укажите API-ключ для «${provider.name}» во вкладке «API-ключи».`
+      );
+    }
+
+    const model = (config.model || "").trim();
+
+    if (!model) {
+      throw new Error(
+        "Укажите ID модели в Настройки → Генерация → " +
+        "«ID модели генерации изображений»."
+      );
+    }
+
+    const apiType = config.apiType === "chat" ? "chat" : "images";
+
+    const endpoint = validateEndpoint(
+      (config.endpoint || (
+        apiType === "chat"
+          ? "/chat/completions"
+          : "/images/generations"
+      )).trim()
+    );
+
+    const base = providerBaseUrl(provider);
+    const url = base + endpoint;
+
+    const headers = {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer " + key
+    };
+
+    if (provider.id === "openrouter") {
+      headers["HTTP-Referer"] = location.origin.startsWith("http")
+        ? location.origin
+        : "https://localhost";
+
+      headers["X-Title"] = "AI Chat HTML";
+    }
+
+    const body = apiType === "chat"
+      ? {
+          model,
+          messages: [
+            { role: "user", content: prompt }
+          ],
+          modalities: ["image", "text"],
+          stream: false
+        }
+      : {
+          model,
+          prompt,
+          n: 1
+        };
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal
+    });
+
+    if (!response.ok) {
+      let detail = await response.text();
+
+      try {
+        const parsed = JSON.parse(detail);
+        detail = parsed.error?.message || parsed.message || detail;
+      } catch {}
+
+      throw new Error(
+        `${provider.name}: HTTP ${response.status}. ` +
+        String(detail).slice(0, 500)
+      );
+    }
+
+    const data = await response.json();
+
+    if (data.error) {
+      throw new Error(
+        data.error.message || "Провайдер вернул ошибку."
+      );
+    }
+
+    return extractImageBlob(data, apiType, signal);
+  }
+
+  // ========================================
+  // Создание сообщения с картинкой
+  // ========================================
+
+  async function generateImageForChat(chat, prompt) {
+    if (controller || imageBusy || window.githubAgentBusy) return;
+
+    const config = loadConfig();
+    const provider = findProvider(config.provider);
+
+    const requestController = new AbortController();
+
+    controller = requestController;
+    genChatId = chat.id;
+    imageBusy = true;
+
+    const messageId = uid();
+
+    const message = {
+      role: "assistant",
+      content: "🎨 Создаю изображение…",
+      model: config.model || provider?.name || "Изображение",
+      time: Date.now(),
+      imageGenerationId: messageId
+    };
+
+    chat.messages.push(message);
+
+    updateSendBtn();
+    renderList();
+
+    if (currentId === chat.id) {
+      renderMessages();
+    }
+
+    try {
+      const blob = await requestImage(
+        prompt,
+        requestController.signal
+      );
+
+      if (requestController.signal.aborted) {
+        throw new DOMException("Остановлено", "AbortError");
+      }
+
+      storeTemporaryImage(messageId, blob);
+
+      message.content =
+        "Изображение готово. Скачайте его до перезагрузки страницы.";
+    } catch (err) {
+      message.content = "";
+
+      if (err.name === "AbortError") {
+        message.error = "Генерация изображения остановлена.";
+      } else if (err.message === "Failed to fetch") {
+        message.error =
+          "Не удалось выполнить запрос или загрузить картинку. " +
+          "Проверьте интернет, Base URL, путь API и CORS.";
+      } else {
+        message.error = err.message || String(err);
+      }
+    } finally {
+      imageBusy = false;
+
+      if (controller === requestController) {
+        controller = null;
+      }
+
+      updateSendBtn();
+
+      if (currentId === chat.id) {
+        renderMessages();
+      }
+
+      try {
+        await persist(chat);
+        renderList();
+      } catch (err) {
+        console.error("Ошибка сохранения чата:", err);
+        toast("Не удалось сохранить текст сообщения");
+      }
+    }
+  }
+
+  async function sendImagePrompt() {
+    if (controller || imageBusy || window.githubAgentBusy) return;
+
+    const text = input.value.trim();
+
+    if (!text) {
+      toast("Опишите, какую картинку нужно создать");
+      return;
+    }
+
+    if (pending.length) {
+      toast("Для генерации картинки сначала уберите вложения");
+      return;
+    }
+
+    if (!current()) {
+      newChat();
+    }
+
+    const chat = current();
+
+    chat.messages.push({
+      role: "user",
+      content: text,
+      attachments: [],
+      time: Date.now()
+    });
+
+    if (settings.autoTitle && chat.title === "Новый чат") {
+      chat.title = text.replace(/\s+/g, " ").slice(0, 48);
+    }
+
+    input.value = "";
+    autoGrow();
+
+    /*
+     * Функция устанавливает controller до первого await,
+     * поэтому повторный клик не запустит второй запрос.
+     */
+    await generateImageForChat(chat, text);
+  }
+
+  // ========================================
+  // Перехват отправки только в режиме картинки
+  // ========================================
+
+  document.querySelector("#sendBtn").addEventListener(
+    "click",
+    event => {
+      /*
+       * При активном controller оставляем исходной кнопке
+       * возможность остановить запрос.
+       */
+      if (!imageMode || controller || window.githubAgentEnabled) return;
+
+      event.preventDefault();
+      event.stopImmediatePropagation();
+
+      sendImagePrompt();
+    },
+    true
+  );
+
+  input.addEventListener(
+    "keydown",
+    event => {
+      if (
+        !imageMode ||
+        controller ||
+        window.githubAgentEnabled ||
+        event.key !== "Enter" ||
+        event.shiftKey ||
+        event.isComposing
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopImmediatePropagation();
+
+      sendImagePrompt();
+    },
+    true
+  );
+
+  // ========================================
+  // Повтор генерации изображения
+  // ========================================
+
+  messagesBox.addEventListener(
+    "click",
+    async event => {
+      const button = event.target.closest('[data-a="regen"]');
+      if (!button) return;
+
+      const element = button.closest(".msg");
+      const chat = current();
+
+      if (!element || !chat) return;
+
+      const index = Number(element.dataset.idx);
+      const message = chat.messages[index];
+
+      if (!message?.imageGenerationId) return;
+
+      event.preventDefault();
+      event.stopImmediatePropagation();
+
+      if (controller || imageBusy || window.githubAgentBusy) {
+        toast("Дождитесь окончания ответа");
+        return;
+      }
+
+      /*
+       * Ищем ближайший предыдущий запрос пользователя.
+       * Сам запрос остаётся в истории; повторно его не добавляем.
+       */
+      const previous = chat.messages
+        .slice(0, index)
+        .reverse()
+        .find(item => item.role === "user");
+
+      if (!previous?.content?.trim()) {
+        toast("Не найдено описание изображения");
+        return;
+      }
+
+      /*
+       * Как и исходный «Повторить», удаляем выбранный ответ
+       * и сообщения после него.
+       */
+      for (const item of chat.messages.slice(index)) {
+        if (item.imageGenerationId) {
+          removeTemporaryImage(item.imageGenerationId);
+        }
+      }
+
+      chat.messages.splice(index);
+
+      await generateImageForChat(chat, previous.content);
+    },
+    true
+  );
+
+  /*
+   * При обычном удалении сообщения освобождаем его картинку
+   * из памяти. Исходный обработчик удаления остаётся без изменений.
+   */
+  messagesBox.addEventListener(
+    "click",
+    event => {
+      const button = event.target.closest('[data-a="del"]');
+      if (!button || controller || window.githubAgentBusy) return;
+
+      const element = button.closest(".msg");
+      const chat = current();
+
+      if (!element || !chat) return;
+
+      const message = chat.messages[Number(element.dataset.idx)];
+
+      if (message?.imageGenerationId) {
+        removeTemporaryImage(message.imageGenerationId);
+      }
+    },
+    true
+  );
+
+  /*
+   * Не освобождаем object URL в pagehide: страница может попасть
+   * в back/forward cache и затем вернуться без перезагрузки.
+   * При фактическом закрытии документа браузер освободит память.
+   */
+})();
 </script>
+
 </body>
 </html>
