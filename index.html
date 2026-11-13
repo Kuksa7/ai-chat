@@ -160,11 +160,13 @@ button:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px sol
 }
 @media(prefers-reduced-motion:reduce){.cursor::after{animation:none}.sidebar,.toast{transition:none}}
 </style>
+<link rel="stylesheet" href="agent.css">
 </head>
 <body>
 <div class="app">
   <aside class="sidebar" id="sidebar">
     <div class="side-top">
+      <button class="btn" id="agentSettingsBtn">🤖 Агент GitHub</button>
       <button class="btn primary" id="newChat">＋ Новый чат</button>
       <input id="search" type="search" name="chat-search-q" autocomplete="off" autocorrect="off" spellcheck="false" readonly onfocus="this.removeAttribute('readonly')" placeholder="Поиск по чатам…">
     </div>
@@ -203,6 +205,7 @@ button:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px sol
     <div class="tabs">
       <button class="tab active" data-tab="model">Модель</button>
       <button class="tab" data-tab="keys">API-ключи</button>
+      <button class="tab" data-tab="providers">Провайдеры</button>
       <button class="tab" data-tab="gen">Генерация</button>
       <button class="tab" data-tab="sync">Синхронизация</button>
       <button class="tab" data-tab="data">Данные</button>
@@ -218,6 +221,28 @@ button:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px sol
         <div class="field"><label>Base URL провайдера</label><input id="sBaseUrl"><div class="small">OpenAI-совместимый endpoint; запрос идёт на {baseUrl}/chat/completions</div></div>
       </div>
       <div class="pane" data-pane="keys" id="keysPane"></div>
+      <div class="pane" data-pane="providers">
+        <div class="field small" style="margin-bottom:12px">Добавьте любой OpenAI-совместимый сервис: запросы идут на <b>{Base URL}/chat/completions</b> и <b>{Base URL}/models</b> напрямую из браузера. Ключ хранится локально и отправляется только на этот адрес.</div>
+        <div id="customProvList"></div>
+        <div class="field" style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px">
+          <label id="cpFormTitle">➕ Новый провайдер</label>
+          <div class="small" style="margin-bottom:8px">Идентификатор — латиница, цифры, дефис; используется во внутренних настройках, потом не меняется.</div>
+          <div class="inline" style="margin-bottom:8px">
+            <input id="cpId" placeholder="например, my-llm" autocomplete="off">
+            <input id="cpName" placeholder="Название для меню" autocomplete="off">
+          </div>
+          <input id="cpBaseUrl" placeholder="https://api.example.com/v1" autocomplete="off" style="margin-bottom:8px">
+          <textarea id="cpModels" rows="3" placeholder="Модели, по одной в строке (необязательно — можно загрузить с сервера)" style="margin-bottom:8px"></textarea>
+          <div class="inline" style="flex-wrap:wrap;margin-bottom:8px">
+            <button class="btn" id="cpFetch">↻ Загрузить модели</button>
+            <button class="btn" id="cpSave">Сохранить провайдера</button>
+            <button class="btn" id="cpCancel" hidden>Отмена</button>
+          </div>
+          <div class="field check"><input type="checkbox" id="cpKeyless"><label for="cpKeyless" style="margin:0;color:var(--text)">Без API-ключа (локальный сервер вроде LM Studio / Ollama)</label></div>
+          <div class="small" id="cpStatus"></div>
+        </div>
+        <div class="small" style="border-top:1px solid var(--border);padding-top:12px">⚠️ Агент создания приложений работает через Cloudflare-воркер, который проверяет адрес по списку разрешённых и требует API-ключ. Свой провайдер заработает в агенте только после добавления его хоста в секрет <b>LLM_ALLOWED_BASES</b> воркера. Обычный чат работает без этих ограничений.</div>
+      </div>
       <div class="pane" data-pane="gen">
         <div class="field"><label>Системный промпт</label><textarea id="sSystem" rows="4" placeholder="Ты полезный ассистент…"></textarea></div>
         <div class="field"><label>Temperature: <span id="tempVal"></span></label><input type="range" id="sTemp" min="0" max="2" step="0.05"></div>
@@ -231,14 +256,14 @@ button:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px sol
         <div class="field" style="border-top:1px solid var(--border);padding-top:14px">
           <div class="field check"><input type="checkbox" id="sWeb"><label for="sWeb" style="margin:0;color:var(--text)">🌐 Выход в интернет — искать актуальную информацию в сети перед ответом</label></div>
           <div class="field check"><input type="checkbox" id="sReadUrls"><label for="sReadUrls" style="margin:0;color:var(--text)">🔗 Авточтение ссылок — автоматически загружать текст страниц по ссылкам в сообщении</label></div>
-          <div class="field" style="margin-top:8px;margin-bottom:0"><label>Режим веб-поиска (работает со всеми 5 провайдерами)</label>
+          <div class="field" style="margin-top:8px;margin-bottom:0"><label>Режим веб-поиска (работает с любым провайдером)</label>
             <select id="sWebEngine">
               <option value="auto">Авто (Tavily при наличии ключа, иначе бесплатный поиск)</option>
               <option value="free">Бесплатный поиск без ключей (DuckDuckGo + Wikipedia + Jina)</option>
               <option value="tavily">Tavily Search API (глубокий поиск по ключу)</option>
               <option value="provider">Нативный поиск провайдера (OpenRouter :online + бесплатный поиск)</option>
             </select>
-            <div class="small">Браузер сам находит свежие данные в сети и передаёт их выбранной модели (anymodel, OpenRouter, Nyxos, Xkiro, Tooken).</div>
+            <div class="small">Браузер сам находит свежие данные в сети и передаёт их выбранной модели — как встроенной, так и добавленной вами на вкладке «Провайдеры».</div>
           </div>
         </div>
         <div class="field check" style="border-top:1px solid var(--border);padding-top:14px"><input type="checkbox" id="sStream"><label for="sStream" style="margin:0;color:var(--text)">Потоковый вывод (streaming)</label></div>
@@ -310,17 +335,26 @@ const PROVIDERS = {
       "gpt-6.1-terra",
       "claude-haiku-5-5",
       "deepseek-v4.1-flash-1017",
-      "claude-sonnet-5-5","nemotron-3-ultra","glm-5.3","kimi-k3"]},
-  ghostly: { name: "Anymodel Ghostly", baseUrl: "https://ai-chat.kuksinaalena77.workers.dev/anymodel/v1", models: [
-      "deepseek-v4.1-flash-1017","gpt-6-luna","claude-sonnet-5-5","gpt-6.1-terra"]}
+      "claude-sonnet-5-5","nemotron-3-ultra","glm-5.3","kimi-k3"]}
 };
 const DEFAULTS = {
   provider:"anymodel", model:"cx/gpt-5.6-luna", customModel:"",
-  keys:{anymodel:"",openrouter:"",nyxos:"",xkiro:"",tooken:"",darkapi:"",ghostly:"",tavily:""},
-  baseUrls:{}, fetchedModels:{},
+  keys:{anymodel:"",openrouter:"",nyxos:"",xkiro:"",tooken:"",darkapi:"",tavily:""},
+  baseUrls:{}, fetchedModels:{}, customProviders:{},
   system:"", temperature:0.7, maxTokens:"", context:0, stream:true, autoTitle:true, reasoningEffort:"off", thinkPrompt:false, selfCheck:false,
-  webSearch:false, autoReadUrls:true, webEngine:"auto"
+  webSearch:true, autoReadUrls:true, webEngine:"auto",
+  schemaVersion:1
 };
+
+// Разовая миграция сохранённых настроек: версия в blob перекрывает DEFAULTS,
+// поэтому без неё новая опция никогда не доедет до существующего пользователя.
+function migrateSettings(s){
+  if((s.schemaVersion || 0) >= 1) return s;
+  // v1: поиск в интернете раньше был выключен по умолчанию — включаем один раз
+  if(s.webSearch === false) s.webSearch = true;
+  s.schemaVersion = 1;
+  return s;
+}
 
 // ============ СОСТОЯНИЕ ============
 const $ = s => document.querySelector(s);
@@ -331,16 +365,35 @@ let pending = [];         // вложения до отправки
 let controller = null; let genChatId = null;    // AbortController текущего запроса
 
 function loadSettings(){
-  try{ const s = JSON.parse(lsGet("aichat_settings")||"{}");
-    return {...structuredClone(DEFAULTS), ...s, keys:{...DEFAULTS.keys, ...(s.keys||{})}}; }
+  try{ const raw = JSON.parse(lsGet("aichat_settings")||"{}");
+    const before = raw.schemaVersion || 0;
+    const merged = {...structuredClone(DEFAULTS), ...raw, keys:{...DEFAULTS.keys, ...(raw.keys||{})}};
+    merged.schemaVersion = before;   // версия из хранилища, иначе DEFAULTS всегда даст актуальную и миграция не сработает
+    migrateSettings(merged);
+    if(merged.schemaVersion !== before) lsSet("aichat_settings", JSON.stringify(merged));
+    return merged; }
   catch{ return structuredClone(DEFAULTS); }
 }
 function lsGet(k){ try{ return localStorage.getItem(k); }catch{ return null; } }
 function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch{} }
 function lsDel(k){ try{ localStorage.removeItem(k); }catch{} }
 function saveSettingsLS(){ settings.updatedAt = Date.now(); if(typeof scheduleSync==="function") scheduleSync(); lsSet("aichat_settings", JSON.stringify(settings)); }
-const baseUrlOf = p => (settings.baseUrls[p] || PROVIDERS[p].baseUrl).replace(/\/+$/,"");
-const modelsOf = p => { const f = settings.fetchedModels[p]; const base = PROVIDERS[p].models.filter(Boolean);
+// ============ РЕЕСТР ПРОВАЙДЕРОВ ============
+// Встроенные из PROVIDERS + добавленные пользователем из settings.customProviders
+const RESERVED_IDS = new Set([...Object.keys(PROVIDERS), "tavily"]);
+function providerList(src = settings){
+  const out = {...PROVIDERS};
+  for(const [k,v] of Object.entries(src.customProviders||{})){
+    if(!v || typeof v !== "object") continue;
+    out[k] = {name: String(v.name||k), baseUrl: String(v.baseUrl||""), models: Array.isArray(v.models)?v.models:[], custom:true, keyless: !!v.keyless};
+  }
+  return out;
+}
+const providerOf = (p, src = settings) => providerList(src)[p] || {name:String(p), baseUrl:"", models:[], custom:true};
+const isKeyless = p => !!providerOf(p).keyless;
+
+const baseUrlOf = p => (settings.baseUrls[p] || providerOf(p).baseUrl).replace(/\/+$/,"");
+const modelsOf = p => { const f = settings.fetchedModels[p]; const base = (providerOf(p).models||[]).filter(Boolean);
   return f && f.length ? [...new Set([...base, ...f])] : base; };
 const activeModel = () => settings.customModel.trim() || settings.model;
 
@@ -467,7 +520,7 @@ function updateTitle(){ const c = current(); $("#chatTitle").textContent = c ? c
 function renderMessages(){
   const box = $("#messages"); const c = current();
   if(!c || !c.messages.length){
-    box.innerHTML = `<div class="empty"><h1>Чем могу помочь?</h1><div>${esc(PROVIDERS[settings.provider].name)} · ${esc(activeModel())}</div></div>`; return;
+    box.innerHTML = `<div class="empty"><h1>Чем могу помочь?</h1><div>${esc(providerOf(settings.provider).name)} · ${esc(activeModel())}</div></div>`; return;
   }
   box.innerHTML = `<div class="msg-wrap"></div>`;
   const wrap = box.firstChild;
@@ -492,6 +545,7 @@ function assistantBody(m){
   if(m.reasoning || think) h += `<details class="think"${open}><summary>💭 Рассуждения${m._live && !rest.trim() ? " — думаю…" : ""}${m.checking ? " · 🔍 проверяю ответ…" : ""}</summary><div>${esc((m.reasoning||"")+(think?"\n"+think:""))}</div></details>`;
   if(m.webWarning) h += `<div class="error">⚠️ ${esc(m.webWarning)}</div>`;
   if(m.error) h += `<div class="error">⚠️ ${esc(m.error)}</div>`;
+  if(m.agentLog?.length) h += `<details class="think"><summary>GitHub: журнал действий</summary><div>${esc(m.agentLog.join("\n"))}</div></details>`;
   h += md(rest);
   return h;
 }
@@ -503,7 +557,7 @@ function msgEl(m, idx){
     <div class="bubble">${attsHtml(m.attachments)}<div class="body">${body}</div>
     <div class="meta">${m.model?`<span>${esc(m.model)}</span>`:""}<span>${m.time?fmtTime(m.time):""}</span>
       <button data-a="copy">Копировать</button>
-      ${m.role==="assistant"?`<button data-a="regen">↻ Повторить</button>`:`<button data-a="edit">✏️ Изменить</button>`}
+      ${m.role==="assistant"?(m.agent?"":`<button data-a="regen">↻ Повторить</button>`):(m.agent?"":`<button data-a="edit">✏️ Изменить</button>`)}
       <button data-a="del">Удалить</button></div></div>`;
   return el;
 }
@@ -515,7 +569,7 @@ $("#messages").addEventListener("click", e=>{
   if(t.classList.contains("copy-code")){ copyText(t.closest("pre").querySelector("code").innerText); toast("Код скопирован"); return; }
   const a = t.dataset.a; if(!a) return;
   const idx = +t.closest(".msg").dataset.idx; const c = current(); const m = c.messages[idx];
-  if(controller) return toast("Дождитесь окончания ответа");
+  if(controller || window.githubAgentBusy) return toast("Дождитесь окончания ответа");
   if(a==="copy"){ copyText(m.content||""); toast("Скопировано"); }
   if(a==="del"){ c.messages.splice(idx,1); persist(c); renderMessages(); }
   if(a==="regen"){ c.messages.splice(idx); persist(c); renderMessages(); generate(); }
@@ -594,8 +648,9 @@ input.addEventListener("keydown", e=>{ if(e.key==="Enter" && !e.shiftKey && !e.i
 $("#sendBtn").onclick = ()=> controller ? controller.abort() : send();
 
 async function send(){
+  if(window.githubAgentEnabled) return window.sendGitHubAgent();
   const text = input.value.trim();
-  if(controller || (!text && !pending.length)) return;
+  if(controller || window.githubAgentBusy || (!text && !pending.length)) return;
   if(!current()) newChat();
   const c = current();
   c.messages.push({role:"user", content:text, attachments:pending, time:Date.now()});
@@ -671,17 +726,28 @@ async function makeSearchQuery(text, history, signal, onStatus){
   return fallback;
 }
 
-// Консервативная лексическая проверка: не гарантия достоверности источника.
+// Служебные слова запроса — общий список для фильтра и для проверки «есть ли что искать».
+const SEARCH_STOP = new Set("найди найти поиск поищи пожалуйста расскажи покажи прочитай прочти посмотри открой перескажи кратко коротко какой какая какое какие сколько сейчас сегодня это этого этой есть для или что как где когда про такое такие такой the and for with what how today current price цена стоимость".split(" "));
+function searchableQuery(text){
+  const words = (String(text || "").toLowerCase().replace(/ё/g,"е").match(/[\p{L}\p{N}]+/gu) || [])
+    .filter(w => w.length >= 2 && !SEARCH_STOP.has(w));
+  return words.length ? words.join(" ") : "";
+}
+
+// Мягкая лексическая проверка: отсекает совсем не по теме, но не рубит падежи и короткие запросы.
 function relevantSearchResult(item, query){
   if(!item || !/^https?:\/\//i.test(item.url || "")) return false;
-  const stop = new Set("найди найти поиск поищи пожалуйста расскажи покажи какой какая какое какие сколько сейчас сегодня это этого этой есть для или что как где когда про the and for with what how today current price цена стоимость".split(" "));
+  const stop = SEARCH_STOP;
   const tokens = str => (str.toLowerCase().replace(/ё/g,"е").match(/[\p{L}\p{N}]+/gu) || []).filter(w => w.length >= 2 && !stop.has(w));
   const words = [...new Set(tokens(query))];
-  if(!words.length) return false;
+  if(!words.length) return true;   // в запросе только служебные слова — не отбрасываем всё подряд
   const hay = tokens(`${item.title || ""} ${item.snippet || ""} ${item.content || ""}`);
-  const matches = words.filter(w => hay.some(v => v === w || (w.length >= 5 && v.length >= 5 && v.slice(0,5) === w.slice(0,5))));
+  // сравнение по первым 4 символам — «войну»/«война», «доллара»/«доллар»
+  const stem = w => w.slice(0, w.length >= 5 ? 4 : w.length);
+  const matches = words.filter(w => hay.some(v => v === w || (w.length >= 4 && v.length >= 4 && stem(v) === stem(w))));
   const numbers = words.filter(w => /^\d+$/.test(w));
-  return numbers.every(w => hay.includes(w)) && matches.length >= Math.min(2, words.length);
+  const need = words.length === 1 ? 1 : Math.min(2, Math.ceil(words.length / 2));
+  return numbers.every(w => hay.includes(w)) && matches.length >= need;
 }
 
 function extractUrls(text){
@@ -698,39 +764,37 @@ async function fetchWithTimeout(url, opts={}, ms=9000){
   finally{ clearTimeout(timer); }
 }
 
+// Jina Reader добавляет служебную шапку — вытаскиваем заголовок и вырезаем шапку из тела.
+function splitJinaResponse(txt){
+  const raw = String(txt || "");
+  const titleM = raw.match(/^Title:\s*(.+)$/m);
+  const i = raw.search(/^Markdown Content:\s*$/m);
+  let body = i >= 0 ? raw.slice(i).replace(/^Markdown Content:\s*$/m, "") : raw;
+  body = body.replace(/^(Title|URL Source|Published Time):.*$/gm, "").trim();
+  let title = titleM ? titleM[1].trim() : "";
+  if(!title){
+    // в текстовом режиме шапки может не быть — берём первую осмысленную строку
+    const first = body.split("\n").map(s => s.replace(/^#+\s*/, "").trim()).find(s => s.length >= 3 && s.length <= 120);
+    title = first || "";
+  }
+  return {title, body};
+}
+
 async function fetchUrlContent(url, signal){
-  // 1. Jina Reader (clean Markdown, CORS enabled, no key required)
-  try{
-    const r = await fetchWithTimeout("https://r.jina.ai/" + url, {
-      headers: {"Accept": "text/plain", "X-Return-Format": "markdown"},
-      signal
-    }, 9000);
-    if(r.ok){
-      const txt = (await r.text()).trim();
-      if(txt && txt.length > 40){
-        const titleMatch = txt.match(/^Title:\s*(.+)$/m) || txt.match(/^#\s+(.+)$/m);
-        const title = titleMatch ? titleMatch[1].trim() : url;
-        const clean = txt.slice(0, 6000);
-        return {title, url, snippet: clean.replace(/\s+/g," ").slice(0, 220) + "…", content: clean};
+  // 1. Jina Reader — Markdown (CORS разрешён, ключ не нужен)
+  for(const format of ["markdown", "text"]){
+    try{
+      const r = await fetchWithTimeout("https://r.jina.ai/" + url, {
+        headers: {"Accept": "text/plain", "X-Return-Format": format}, signal
+      }, 14000);
+      if(!r.ok) continue;
+      const {title, body} = splitJinaResponse(await r.text());
+      if(body.length > 30){
+        const clean = body.slice(0, 6000);
+        return {title: title || url, url, snippet: clean.replace(/\s+/g," ").slice(0, 220) + "…", content: clean};
       }
-    }
-  }catch{}
-  // 2. Fallback via AllOrigins CORS proxy
-  try{
-    const r = await fetchWithTimeout("https://api.allorigins.win/get?url=" + encodeURIComponent(url), {signal}, 8000);
-    if(r.ok){
-      const j = await r.json();
-      if(j && j.contents){
-        const doc = new DOMParser().parseFromString(j.contents, "text/html");
-        doc.querySelectorAll("script,style,noscript,nav,footer,svg,iframe").forEach(el=>el.remove());
-        const title = (doc.querySelector("title")?.textContent || url).trim();
-        const bodyText = (doc.body?.innerText || doc.documentElement?.innerText || "").replace(/\s+/g, " ").trim();
-        if(bodyText.length > 30){
-          return {title, url, snippet: bodyText.slice(0, 220) + "…", content: bodyText.slice(0, 5000)};
-        }
-      }
-    }
-  }catch{}
+    }catch{}
+  }
   return null;
 }
 
@@ -755,41 +819,66 @@ async function searchTavily(query, key, signal){
   return out;
 }
 
+// Разбор Markdown-выдачи DuckDuckGo, которую отдаёт r.jina.ai (lite/html).
+// jina иногда склеивает выделения без пробела: «**Что****такое**» — четыре звёздочки там, где был пробел.
+function mdClean(s){
+  return String(s || "")
+    .replace(/\*{4,}/g, " ")
+    .replace(/\*\*/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseDDGMarkdown(md){
+  const out = [];
+  const lines = String(md || "").split("\n");
+  const bareUrl = s => /^https?:\/\/\S+$/i.test(s) || /^[\w-]+(\.[\w-]+)+\//.test(s);
+  for(let i = 0; i < lines.length && out.length < 6; i++){
+    const m = lines[i].match(/^\s*\d+\.\s*\[(.+?)\]\((.+?)\)\s*$/);
+    if(!m) continue;
+    let url = m[2];
+    const uddg = url.match(/[?&]uddg=([^&)]+)/);
+    if(uddg){ try{ url = decodeURIComponent(uddg[1]); }catch{} }
+    if(!/^https?:\/\//i.test(url) || /(^|\.)duckduckgo\.com/i.test(url)) continue;
+    let snippet = "";
+    for(let j = i + 1; j < Math.min(i + 5, lines.length); j++){
+      const s = mdClean(lines[j]);
+      if(!s) continue;
+      if(/^\d+\.\s*\[/.test(s)) break;
+      if(bareUrl(s)) continue;
+      snippet = s;
+      if(snippet) break;
+    }
+    const title = mdClean(m[1]);
+    if(!title) continue;
+    out.push({title, url, snippet, content: snippet});
+  }
+  return out;
+}
+
 async function searchDDGWeb(query, signal){
-  const ddgUrl = "https://html.duckduckgo.com/html/?q=" + encodeURIComponent(query);
-  const proxies = [
-    "https://api.allorigins.win/get?url=" + encodeURIComponent(ddgUrl),
-    "https://corsproxy.io/?" + encodeURIComponent(ddgUrl)
-  ];
-  for(const pUrl of proxies){
+  const q = encodeURIComponent(query);
+  // 1. r.jina.ai читает страницу DDG за нас и отдаёт готовый Markdown — не зависит от мёртвых CORS-прокси
+  for(const target of ["https://lite.duckduckgo.com/lite/?q=" + q, "https://html.duckduckgo.com/html/?q=" + q]){
     try{
-      const r = await fetchWithTimeout(pUrl, {signal}, 7500);
+      const r = await fetchWithTimeout("https://r.jina.ai/" + target, {
+        headers: {"Accept": "text/plain", "X-Return-Format": "markdown"}, signal
+      }, 12000);
       if(!r.ok) continue;
-      let html = "";
-      if(pUrl.includes("allorigins")){
-        const j = await r.json(); html = j.contents || "";
-      } else {
-        html = await r.text();
-      }
-      if(!html) continue;
-      const doc = new DOMParser().parseFromString(html, "text/html");
-      const items = [];
-      doc.querySelectorAll(".result, .web-result").forEach(el => {
-        if(items.length >= 6) return;
-        const a = el.querySelector("a.result__a") || el.querySelector("a");
-        const snipEl = el.querySelector(".result__snippet") || el.querySelector(".result__extras__url");
-        if(!a) return;
-        let href = a.getAttribute("href") || "";
-        const uddg = href.match(/[?&]uddg=([^&]+)/);
-        if(uddg) href = decodeURIComponent(uddg[1]);
-        if(!href.startsWith("http") || href.includes("duckduckgo.com/y.js")) return;
-        const title = (a.textContent || "").trim();
-        const snippet = (snipEl?.textContent || "").replace(/\s+/g, " ").trim();
-        if(title && snippet) items.push({title, url: href, snippet, content: snippet});
-      });
+      const items = parseDDGMarkdown(await r.text());
       if(items.length) return items;
     }catch{}
   }
+  // 2. Резерв: третий вариант DDG через Jina в текстовом режиме
+  try{
+    const r = await fetchWithTimeout("https://r.jina.ai/https://duckduckgo.com/html/?q=" + q, {
+      headers: {"Accept": "text/plain", "X-Return-Format": "markdown"}, signal
+    }, 12000);
+    if(r.ok){
+      const items = parseDDGMarkdown(await r.text());
+      if(items.length) return items;
+    }
+  }catch{}
   return [];
 }
 
@@ -852,8 +941,11 @@ async function gatherWebContext(userText, signal, onStatus, history = []){
 
   // 2. Run search if webSearch is active
   if(settings.webSearch){
-    const rawQuery = await makeSearchQuery(userText, history, signal, onStatus);
-    if(rawQuery.length >= 2){
+    // Ссылки уже прочитаны выше — искать по словам вроде «прочитай» бессмысленно
+    const searchText = urls.length ? userText.replace(/https?:\/\/[^\s<>)"'`]+/gi, " ") : userText;
+    const meaningful = searchableQuery(searchText);
+    const rawQuery = meaningful ? await makeSearchQuery(searchText.replace(/\s+/g," ").trim(), history, signal, onStatus) : "";
+    if(rawQuery.length >= 2 && searchableQuery(rawQuery)){
       onStatus(`Ищу в интернете: «${rawQuery.slice(0, 50)}${rawQuery.length>50?"…":""}»…`);
       const eng = settings.webEngine || "auto";
       const tavilyKey = (settings.keys.tavily || "").trim();
@@ -868,6 +960,15 @@ async function gatherWebContext(userText, signal, onStatus, history = []){
       if(results.length < 2 && (eng === "auto" || eng === "free" || eng === "provider")){
         const ddgWeb = await searchDDGWeb(rawQuery, signal);
         ddgWeb.filter(item => relevantSearchResult(item, rawQuery)).forEach(addResult);
+      }
+      // Резервные источники без ключей: срабатывают, если основной поиск дал мало
+      if(results.length < 3 && (eng === "auto" || eng === "free" || eng === "provider")){
+        onStatus("Ищу в Wikipedia и DuckDuckGo Instant Answer…");
+        const [wiki, instant] = await Promise.all([
+          searchWikipedia(rawQuery, signal).catch(()=>[]),
+          searchDDGInstant(rawQuery, signal).catch(()=>[])
+        ]);
+        [...wiki, ...instant].filter(item => relevantSearchResult(item, rawQuery)).forEach(addResult);
       }
     }
   }
@@ -892,7 +993,8 @@ async function callModel({p, key, model, messages, signal, onDelta, useReasoning
   if(wantProviderWeb){
     if(p === "openrouter") body.plugins = [{id: "web"}];
   }
-  const headers = {"Content-Type":"application/json", "Authorization":"Bearer "+key};
+  const headers = {"Content-Type":"application/json"};
+  if(key) headers["Authorization"] = "Bearer "+key;
   if(p==="openrouter"){ headers["HTTP-Referer"] = location.origin.startsWith("http") ? location.origin : "https://localhost"; headers["X-Title"] = "AI Chat HTML"; }
   const res = await fetch(baseUrlOf(p)+"/chat/completions", {method:"POST", headers, body:JSON.stringify(body), signal});
   if(!res.ok){
@@ -936,6 +1038,7 @@ async function callModel({p, key, model, messages, signal, onDelta, useReasoning
 }
 
 async function generate(){
+  if(window.githubAgentBusy) return toast("Дождитесь завершения работы агента");
   const c = current(); const p = settings.provider; const key = settings.keys[p]; const model = activeModel();
   const msg = {role:"assistant", content:"", reasoning:"", model, time:Date.now()};
   c.messages.push(msg);
@@ -943,7 +1046,8 @@ async function generate(){
   const el = $("#messages .msg-wrap").lastElementChild; const bodyEl = el.querySelector(".body");
   const localAnswer = localClockAnswer([...c.messages.slice(0,-1)].reverse().find(m=>m.role==="user")?.content || "");
   if(localAnswer){ msg.content = localAnswer; msg.model = ""; bodyEl.innerHTML = assistantBody(msg); await persist(c); return; }
-  if(!key){ msg.error = `Не указан API-ключ для «${PROVIDERS[p].name}». Откройте ⚙️ Настройки → API-ключи.`; bodyEl.innerHTML = assistantBody(msg); await persist(c); return; }
+  if(!key && !isKeyless(p)){ msg.error = `Не указан API-ключ для «${providerOf(p).name}». Откройте ⚙️ Настройки → API-ключи.`; bodyEl.innerHTML = assistantBody(msg); await persist(c); return; }
+  if(!baseUrlOf(p)){ msg.error = `У провайдера «${providerOf(p).name}» не задан Base URL. Откройте ⚙️ Настройки → Провайдеры.`; bodyEl.innerHTML = assistantBody(msg); await persist(c); return; }
 
   controller = new AbortController(); genChatId = c.id; updateSendBtn();
   bodyEl.classList.add("cursor"); msg._live = true;
@@ -1015,7 +1119,15 @@ async function generate(){
 }
 
 // ============ ВЕРХНЯЯ ПАНЕЛЬ ============
-function fillProviderSelect(sel, val){ sel.innerHTML = Object.entries(PROVIDERS).map(([k,v])=>`<option value="${k}">${esc(v.name)}</option>`).join(""); sel.value = val; }
+function fillProviderSelect(sel, val, src = settings){
+  const list = providerList(src);
+  const builtin = Object.entries(list).filter(([,v])=>!v.custom);
+  const custom = Object.entries(list).filter(([,v])=>v.custom);
+  const opt = ([k,v]) => `<option value="${esc(k)}">${esc(v.name)}</option>`;
+  sel.innerHTML = builtin.map(opt).join("") +
+    (custom.length ? `<optgroup label="Мои провайдеры">${custom.map(opt).join("")}</optgroup>` : "");
+  sel.value = val;
+}
 function fillModelSelect(sel, p, val){
   const list = modelsOf(p); if(val && !list.includes(val)) list.unshift(val);
   sel.innerHTML = list.map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join(""); sel.value = val || list[0];
@@ -1034,29 +1146,25 @@ $("#search").oninput = renderList;
 let draft;
 function openSettings(){
   draft = structuredClone(settings);
-  fillProviderSelect($("#sProvider"), draft.provider);
+  draft.keys = draft.keys || {}; draft.customProviders = draft.customProviders || {};
+  fillProviderSelect($("#sProvider"), draft.provider, draft);
   syncProviderFields();
-  $("#keysPane").innerHTML = Object.entries(PROVIDERS).map(([k,v])=>`
-    <div class="field"><label>${esc(v.name)} <span style="opacity:.6">(${esc(v.baseUrl)})</span></label>
-      <div class="inline"><input type="password" data-key="${k}" value="${esc(draft.keys[k]||"")}" placeholder="sk-…" autocomplete="off">
-      <button class="btn" data-show="${k}">👁</button></div></div>`).join("") +
-    `<div class="field" style="border-top:1px solid var(--border);padding-top:12px;margin-top:12px">
-      <label>🌐 Tavily Search API <span style="opacity:.6">(опционально — для глубокого веб-поиска, 1000 запросов/мес бесплатно на tavily.com)</span></label>
-      <div class="inline"><input type="password" data-key="tavily" value="${esc(draft.keys.tavily||"")}" placeholder="tvly-… (без ключа работает бесплатный поиск)" autocomplete="off">
-      <button class="btn" data-show="tavily">👁</button></div></div>` +
-    `<div class="small">Ключи хранятся только локально в этом браузере (localStorage) и отправляются только выбранному провайдеру.</div>`;
-  $("#keysPane").querySelectorAll("[data-show]").forEach(b=>b.onclick=()=>{ const i=$(`[data-key="${b.dataset.show}"]`); i.type = i.type==="password"?"text":"password"; });
+  renderKeysPane();
+  cpResetForm(); renderCustomProviders();
   $("#sSystem").value = draft.system; $("#sTemp").value = draft.temperature; $("#tempVal").textContent = draft.temperature;
   $("#sMaxTokens").value = draft.maxTokens; $("#sContext").value = draft.context; $("#sStream").checked = draft.stream; $("#sEffort").value = draft.reasoningEffort||"off"; $("#sThink").checked = !!draft.thinkPrompt; $("#sSelfCheck").checked = !!draft.selfCheck; $("#sAutoTitle").checked = draft.autoTitle;
   $("#sWeb").checked = !!draft.webSearch; $("#sReadUrls").checked = draft.autoReadUrls !== false; $("#sWebEngine").value = draft.webEngine || "auto";
   $("#fetchStatus").textContent = "";
   $("#settingsModal").classList.add("show");
 }
+function draftModelsOf(p){ const f = draft.fetchedModels[p]; const base = (providerOf(p, draft).models||[]).filter(Boolean);
+  return f && f.length ? [...new Set([...base, ...f])] : base; }
 function syncProviderFields(){
   const p = draft.provider;
-  fillModelSelect($("#sModel"), p, modelsOf(p).includes(draft.model) ? draft.model : modelsOf(p)[0]);
+  const list = draftModelsOf(p);
+  fillModelSelect($("#sModel"), p, list.includes(draft.model) ? draft.model : list[0]);
   $("#sCustomModel").value = draft.customModel;
-  $("#sBaseUrl").value = draft.baseUrls[p] || PROVIDERS[p].baseUrl;
+  $("#sBaseUrl").value = draft.baseUrls[p] || providerOf(p, draft).baseUrl;
 }
 $("#sProvider").onchange = e=>{ draft.baseUrls[draft.provider] = $("#sBaseUrl").value.trim(); draft.provider = e.target.value; draft.customModel=""; syncProviderFields(); };
 $("#sTemp").oninput = e=> $("#tempVal").textContent = e.target.value;
@@ -1065,24 +1173,139 @@ document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{
   document.querySelectorAll(".pane").forEach(x=>x.classList.toggle("active",x.dataset.pane===t.dataset.tab)); });
 function collectDraft(){
   draft.model = $("#sModel").value; draft.customModel = $("#sCustomModel").value.trim();
-  const bu = $("#sBaseUrl").value.trim(); if(bu && bu!==PROVIDERS[draft.provider].baseUrl) draft.baseUrls[draft.provider]=bu; else delete draft.baseUrls[draft.provider];
+  const bu = $("#sBaseUrl").value.trim(); if(bu && bu!==providerOf(draft.provider, draft).baseUrl) draft.baseUrls[draft.provider]=bu; else delete draft.baseUrls[draft.provider];
   document.querySelectorAll("[data-key]").forEach(i=> draft.keys[i.dataset.key] = i.value.trim());
   draft.system = $("#sSystem").value; draft.temperature = +$("#sTemp").value; draft.maxTokens = $("#sMaxTokens").value;
   draft.context = +$("#sContext").value || 0; draft.stream = $("#sStream").checked; draft.reasoningEffort = $("#sEffort").value; draft.thinkPrompt = $("#sThink").checked; draft.selfCheck = $("#sSelfCheck").checked; draft.autoTitle = $("#sAutoTitle").checked;
   draft.webSearch = $("#sWeb").checked; draft.autoReadUrls = $("#sReadUrls").checked; draft.webEngine = $("#sWebEngine").value;
 }
+async function fetchModelIds(baseUrl, key){
+  const r = await fetch(baseUrl.replace(/\/+$/,"")+"/models", {headers: key?{"Authorization":"Bearer "+key}:{}});
+  if(!r.ok) throw new Error("HTTP "+r.status);
+  const j = await r.json(); const ids = (j.data||j.models||[]).map(m=>m.id||m.name).filter(Boolean).sort();
+  if(!ids.length) throw new Error("список пуст");
+  return ids;
+}
 $("#fetchModels").onclick = async ()=>{
   collectDraft(); const p = draft.provider, key = draft.keys[p]; const st = $("#fetchStatus");
   st.textContent = "Загрузка…";
   try{
-    const r = await fetch((draft.baseUrls[p]||PROVIDERS[p].baseUrl).replace(/\/+$/,"")+"/models", {headers: key?{"Authorization":"Bearer "+key}:{}});
-    if(!r.ok) throw new Error("HTTP "+r.status);
-    const j = await r.json(); const ids = (j.data||j.models||[]).map(m=>m.id||m.name).filter(Boolean).sort();
-    if(!ids.length) throw new Error("список пуст");
+    const ids = await fetchModelIds(draft.baseUrls[p]||providerOf(p, draft).baseUrl, key);
     draft.fetchedModels[p] = ids; settings.fetchedModels[p] = ids;
     fillModelSelect($("#sModel"), p, draft.model); st.textContent = `Найдено моделей: ${ids.length}`;
   }catch(e){ st.textContent = "Не удалось загрузить: "+(e.message==="Failed to fetch"?"сеть/CORS":e.message); }
 };
+// ============ СВОИ ПРОВАЙДЕРЫ ============
+let cpEditId = null;   // id провайдера, который сейчас редактируется (null — режим создания)
+
+function cpStatus(t, err){ const el = $("#cpStatus"); el.textContent = t||""; el.style.color = err ? "var(--danger)" : "var(--muted)"; }
+function cpResetForm(){
+  cpEditId = null;
+  $("#cpId").value = ""; $("#cpId").disabled = false;
+  $("#cpName").value = ""; $("#cpBaseUrl").value = "";
+  $("#cpModels").value = ""; $("#cpKeyless").checked = false;
+  $("#cpCancel").hidden = true; $("#cpFormTitle").textContent = "➕ Новый провайдер";
+  cpStatus("");
+}
+function cpLoadInto(id){
+  const v = providerOf(id, draft);
+  cpEditId = id;
+  $("#cpId").value = id; $("#cpId").disabled = true;
+  $("#cpName").value = v.name; $("#cpBaseUrl").value = v.baseUrl;
+  $("#cpModels").value = (v.models||[]).join("\n");
+  $("#cpKeyless").checked = !!v.keyless;
+  $("#cpCancel").hidden = false; $("#cpFormTitle").textContent = "✏️ Изменение: "+v.name;
+  cpStatus("");
+}
+function renderKeysPane(){
+  const all = Object.entries(providerList(draft));
+  $("#keysPane").innerHTML = all.map(([k,v])=>`
+    <div class="field"><label>${esc(v.name)} <span style="opacity:.6">(${esc(v.baseUrl||"—")})</span></label>
+      <div class="inline"><input type="password" data-key="${esc(k)}" value="${esc(draft.keys[k]||"")}" placeholder="${v.keyless?"не требуется":"sk-…"}" autocomplete="off"${v.keyless?" disabled":""}>
+      <button class="btn" data-show="${esc(k)}"${v.keyless?" disabled":""}>👁</button></div></div>`).join("") +
+    `<div class="field" style="border-top:1px solid var(--border);padding-top:12px;margin-top:12px">
+      <label>🌐 Tavily Search API <span style="opacity:.6">(опционально — для глубокого веб-поиска, 1000 запросов/мес бесплатно на tavily.com)</span></label>
+      <div class="inline"><input type="password" data-key="tavily" value="${esc(draft.keys.tavily||"")}" placeholder="tvly-… (без ключа работает бесплатный поиск)" autocomplete="off">
+      <button class="btn" data-show="tavily">👁</button></div></div>` +
+    `<div class="small">Ключи хранятся только локально в этом браузере (localStorage) и отправляются только выбранному провайдеру.</div>`;
+  $("#keysPane").querySelectorAll("[data-show]").forEach(b=>b.onclick=()=>{ const i=$(`[data-key="${b.dataset.show}"]`); i.type = i.type==="password"?"text":"password"; });
+}
+function renderCustomProviders(){
+  const custom = Object.entries(draft.customProviders||{});
+  const box = $("#customProvList");
+  if(!custom.length){ box.innerHTML = `<div class="small" style="margin-bottom:10px">Своих провайдеров пока нет.</div>`; return; }
+  box.innerHTML = custom.map(([k,v])=>{
+    const n = (Array.isArray(v.models)?v.models:[]).length;
+    return `<div class="field" style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <div style="flex:1;min-width:0">
+        <div style="color:var(--text)">${esc(v.name||k)}${v.keyless?' <span class="small" style="opacity:.6">без ключа</span>':""}</div>
+        <div class="small" style="opacity:.6;word-break:break-all">${esc(k)} · ${esc(v.baseUrl||"нет Base URL")} · моделей: ${n}</div>
+      </div>
+      <button class="btn" data-cp-edit="${esc(k)}">✏️</button>
+      <button class="btn danger" data-cp-del="${esc(k)}">🗑</button>
+    </div>`;
+  }).join("");
+  box.querySelectorAll("[data-cp-edit]").forEach(b=>b.onclick=()=>cpLoadInto(b.dataset.cpEdit));
+  box.querySelectorAll("[data-cp-del]").forEach(b=>b.onclick=()=>cpDelete(b.dataset.cpDel));
+}
+async function cpDelete(id){
+  const v = draft.customProviders[id]; if(!v) return;
+  const used = draft.provider === id;
+  const ok = await askDialog({title:"Удаление провайдера",
+    text:`Удалить провайдера «${v.name||id}» вместе с адресом, списком моделей и ключом?${used?" Он сейчас выбран — переключусь на anymodel.org.":""}`});
+  if(!ok) return;
+  delete draft.customProviders[id];
+  delete draft.baseUrls[id]; delete draft.fetchedModels[id]; delete draft.keys[id];
+  if(used){ draft.provider = "anymodel"; draft.model = (PROVIDERS.anymodel.models||[])[0]||""; draft.customModel = ""; }
+  if(cpEditId === id) cpResetForm();
+  renderCustomProviders(); renderKeysPane();
+  fillProviderSelect($("#sProvider"), draft.provider, draft); syncProviderFields();
+  toast("Провайдер удалён — нажмите «Сохранить», чтобы применить");
+}
+function cpValidate(id, name, baseUrl){
+  if(!id) return "Укажите идентификатор провайдера.";
+  if(!/^[a-z0-9][a-z0-9-]{1,39}$/.test(id)) return "Идентификатор: 2–40 символов, только латиница в нижнем регистре, цифры и дефис, начинается с буквы или цифры.";
+  if(RESERVED_IDS.has(id) && cpEditId !== id) return `Идентификатор «${id}» уже занят встроенным провайдером или служебной настройкой.`;
+  if(!name) return "Укажите название — оно показывается в меню.";
+  if(!/^https:\/\/[^\s]+$/i.test(baseUrl)) return "Base URL должен начинаться с https:// и содержать адрес без пробелов.";
+  try{ new URL(baseUrl); }catch{ return "Base URL не похож на корректный адрес."; }
+  return "";
+}
+function cpSave(){
+  const id = ($("#cpId").value.trim() || cpEditId || "").toLowerCase();
+  const name = $("#cpName").value.trim();
+  const baseUrl = $("#cpBaseUrl").value.trim();
+  const keyless = $("#cpKeyless").checked;
+  const err = cpValidate(id, name, baseUrl);
+  if(err) return cpStatus(err, true);
+  const models = [...new Set($("#cpModels").value.split("\n").map(s=>s.trim()).filter(Boolean))];
+  draft.customProviders = draft.customProviders || {};
+  const target = cpEditId || id;
+  const prev = draft.customProviders[target];
+  draft.customProviders[target] = {...(prev||{}), name, baseUrl, models, keyless};
+  // собственный Base URL провайдера перекрывает ручной override
+  if(draft.baseUrls[target] && draft.baseUrls[target].replace(/\/+$/,"") === baseUrl.replace(/\/+$/,"")) delete draft.baseUrls[target];
+  if(keyless) draft.keys[target] = "";
+  renderCustomProviders(); renderKeysPane();
+  fillProviderSelect($("#sProvider"), draft.provider, draft); syncProviderFields();
+  const saved = `Сохранено: ${name}`;
+  cpResetForm(); cpStatus(saved);
+  toast("Провайдер сохранён — нажмите «Сохранить», чтобы применить");
+}
+$("#cpSave").onclick = cpSave;
+$("#cpCancel").onclick = cpResetForm;
+$("#cpFetch").onclick = async ()=>{
+  const baseUrl = $("#cpBaseUrl").value.trim();
+  if(!/^https:\/\//i.test(baseUrl)) return cpStatus("Сначала укажите Base URL (https://…).", true);
+  cpStatus("Загрузка списка моделей…");
+  try{
+    const key = $("#cpKeyless").checked ? "" : (draft.keys[cpEditId || $("#cpId").value.trim().toLowerCase()]||"");
+    const ids = await fetchModelIds(baseUrl, key);
+    $("#cpModels").value = ids.join("\n");
+    cpStatus(`Найдено моделей: ${ids.length}. Проверьте список и нажмите «Сохранить провайдера».`);
+  }catch(e){ cpStatus("Не удалось загрузить: "+(e.message==="Failed to fetch"?"сеть или CORS — сервис не отдаёт /models браузеру":e.message), true); }
+};
+
 $("#saveSettings").onclick = ()=>{ collectDraft(); settings = draft; saveSettingsLS(); refreshTop(); $("#settingsModal").classList.remove("show"); if(!current()?.messages.length) renderMessages(); toast("Сохранено"); };
 const closeS = ()=>$("#settingsModal").classList.remove("show");
 $("#cancelSettings").onclick = closeS; $("#closeSettings").onclick = closeS;
@@ -1278,11 +1501,11 @@ $("#webBtn").onclick = ()=>{
   updateSendBtn(); input.focus();
   initSync();
 })();
-   </script>
-   <script src="agent.js"></script>
+</script>
+<script src="agent.js"></script>
 
 <style>
-/* Кнопка и изображение */
+/* Генерация изображений Tooken */
 .generated-image {
   margin-top: 10px;
 }
@@ -1310,10 +1533,15 @@ $("#webBtn").onclick = ()=>{
 }
 
 .image-status {
+  margin-top: 6px;
   color: var(--muted);
   font-size: 13px;
 }
 
+/*
+ * Дополнительная кнопка не должна сжимать поле ввода
+ * до нулевой ширины на узких экранах.
+ */
 @media (max-width: 760px) {
   #imageBtn {
     width: 44px;
@@ -1338,113 +1566,57 @@ $("#webBtn").onclick = ()=>{
   "use strict";
 
   /*
-   * Настройки изображений хранятся отдельно от настроек чата.
-   * Сами картинки нигде постоянно не сохраняются.
+   * Настройки генерации изображений хранятся отдельно,
+   * чтобы не менять существующий объект settings.
    */
-  const CONFIG_KEY = "aichat_image_generation_config";
+  const IMAGE_CONFIG_KEY = "aichat_tooken_image_config";
 
-  const DEFAULT_CONFIG = {
-    provider: "anymodel_worker",
+  /*
+   * Укажите реальный ID модели генерации изображений Tooken.
+   * Этот параметр намеренно пустой: неизвестно, какие модели
+   * и какой endpoint поддерживает ваш Tooken.
+   */
+  const DEFAULT_IMAGE_CONFIG = {
     model: "",
-    apiType: "images",
     endpoint: "/images/generations"
   };
 
-  /*
-   * Отдельный вариант для указанного Worker.
-   * Использует тот же ключ, что и обычный anymodel.
-   */
-  const WORKER_PROVIDER = {
-    id: "anymodel_worker",
-    name: "anymodel через Worker",
-    baseUrl: "https://ai-chat.kuksinaalena77.workers.dev/anymodel/v1",
-    keyProvider: "anymodel"
-  };
+  function loadImageConfig() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(IMAGE_CONFIG_KEY) || "{}");
+
+      return {
+        ...DEFAULT_IMAGE_CONFIG,
+        ...saved
+      };
+    } catch {
+      return { ...DEFAULT_IMAGE_CONFIG };
+    }
+  }
+
+  function saveImageConfig(config) {
+    localStorage.setItem(
+      IMAGE_CONFIG_KEY,
+      JSON.stringify(config)
+    );
+  }
 
   /*
-   * Хранение только в памяти вкладки:
-   * message ID -> { objectUrl, filename }.
+   * Картинки хранятся только здесь, в оперативной памяти страницы.
+   *
+   * Ключ — ID сообщения ассистента.
+   * Значение — Blob и временный object URL.
+   *
+   * Никаких данных картинки в объекте чата нет.
    */
   const temporaryImages = new Map();
 
   let imageMode = false;
-  let imageBusy = false;
+  let imageRequestBusy = false;
 
-  function loadConfig() {
-    try {
-      const value = JSON.parse(localStorage.getItem(CONFIG_KEY) || "{}");
-
-      return {
-        ...DEFAULT_CONFIG,
-        ...value
-      };
-    } catch {
-      return { ...DEFAULT_CONFIG };
-    }
-  }
-
-  function saveConfig(config) {
-    localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
-  }
-
-  function providerOptions() {
-    const options = Object.entries(PROVIDERS).map(([id, provider]) => ({
-      id,
-      name: provider.name,
-      keyProvider: id
-    }));
-
-    options.push(WORKER_PROVIDER);
-    return options;
-  }
-
-  function findProvider(id) {
-    if (id === WORKER_PROVIDER.id) {
-      return WORKER_PROVIDER;
-    }
-
-    if (!PROVIDERS[id]) {
-      return null;
-    }
-
-    return {
-      id,
-      name: PROVIDERS[id].name,
-      keyProvider: id
-    };
-  }
-
-  function providerBaseUrl(provider) {
-    if (provider.id === WORKER_PROVIDER.id) {
-      return provider.baseUrl.replace(/\/+$/, "");
-    }
-
-    return baseUrlOf(provider.id);
-  }
-
-  function validateEndpoint(endpoint) {
-    /*
-     * Только путь относительно выбранного Base URL.
-     * Абсолютный URL здесь вводить нельзя, чтобы случайно
-     * не отправить API-ключ на другой адрес.
-     */
-    if (
-      !endpoint.startsWith("/") ||
-      endpoint.startsWith("//") ||
-      endpoint.includes("\\") ||
-      /[?#]/.test(endpoint)
-    ) {
-      throw new Error(
-        "Путь API должен начинаться с одного / и не содержать ? или #."
-      );
-    }
-
-    return endpoint;
-  }
-
-  // ========================================
-  // Кнопка режима изображения
-  // ========================================
+  // ----------------------------------------
+  // Кнопка режима генерации
+  // ----------------------------------------
 
   const imageBtn = document.createElement("button");
 
@@ -1455,16 +1627,16 @@ $("#webBtn").onclick = ()=>{
   imageBtn.setAttribute("aria-label", "Генерация изображений");
   imageBtn.setAttribute("aria-pressed", "false");
 
-  document.querySelector("#webBtn")
-    .insertAdjacentElement("afterend", imageBtn);
+  const webBtn = document.querySelector("#webBtn");
+  webBtn.insertAdjacentElement("afterend", imageBtn);
 
   function renderImageButton() {
     imageBtn.classList.toggle("on", imageMode);
     imageBtn.setAttribute("aria-pressed", String(imageMode));
 
     imageBtn.title = imageMode
-      ? "Генерация изображений включена"
-      : "Включить генерацию изображений";
+      ? "Генерация изображений Tooken включена"
+      : "Включить генерацию изображений Tooken";
   }
 
   imageBtn.addEventListener("click", () => {
@@ -1480,184 +1652,117 @@ $("#webBtn").onclick = ()=>{
 
   renderImageButton();
 
-  // ========================================
-  // Настройки изображений
-  // ========================================
+  // ----------------------------------------
+  // Настройки в существующем окне
+  // ----------------------------------------
 
   const generationPane = document.querySelector('[data-pane="gen"]');
-  const settingsBlock = document.createElement("div");
 
+  const settingsBlock = document.createElement("div");
   settingsBlock.className = "field";
   settingsBlock.style.borderTop = "1px solid var(--border)";
   settingsBlock.style.paddingTop = "14px";
 
   settingsBlock.innerHTML = `
-    <label for="imageProvider">🎨 Провайдер изображений</label>
-    <select id="imageProvider"></select>
-
-    <div class="small">
-      Используется API-ключ выбранного провайдера из вкладки «API-ключи».
-      Для anymodel через Worker используется ключ anymodel.org.
-    </div>
-
-    <label for="imageModel" style="margin-top:12px">
-      ID модели генерации изображений
+    <label for="tookenImageModel">
+      🎨 Модель генерации изображений Tooken
     </label>
+
     <input
-      id="imageModel"
+      id="tookenImageModel"
       type="text"
       autocomplete="off"
-      placeholder="Введите ID модели провайдера"
+      placeholder="Введите ID модели из документации Tooken"
     >
 
     <div class="small">
-      Укажите модель, которая действительно поддерживает создание картинок.
-      Доступность и стоимость определяет провайдер.
+      Используется API-ключ Tooken из вкладки «API-ключи».
+      ID модели должен поддерживать генерацию изображений.
     </div>
 
-    <label for="imageApiType" style="margin-top:12px">
-      Тип API
+    <label for="tookenImageEndpoint" style="margin-top:12px">
+      Путь генерации относительно Base URL Tooken
     </label>
-    <select id="imageApiType">
-      <option value="images">
-        Images API — /images/generations
-      </option>
-      <option value="chat">
-        Chat API — /chat/completions
-      </option>
-    </select>
 
-    <label for="imageEndpoint" style="margin-top:12px">
-      Путь относительно Base URL
-    </label>
     <input
-      id="imageEndpoint"
+      id="tookenImageEndpoint"
       type="text"
       autocomplete="off"
       placeholder="/images/generations"
     >
 
-    <div class="small" id="imageEndpointHelp"></div>
+    <div class="small">
+      По умолчанию используется OpenAI-совместимый
+      <code>/images/generations</code>. Если Tooken использует
+      другой путь, укажите его здесь.
+    </div>
 
     <div class="small">
-      Изображение находится только в памяти вкладки.
-      После перезагрузки страницы его нужно генерировать заново.
+      Настройки картинки сохраняются локально в этом браузере
+      и отдельно от синхронизируемых настроек чата.
     </div>
   `;
 
   generationPane.appendChild(settingsBlock);
 
-  const providerInput = settingsBlock.querySelector("#imageProvider");
-  const modelInput = settingsBlock.querySelector("#imageModel");
-  const apiTypeInput = settingsBlock.querySelector("#imageApiType");
-  const endpointInput = settingsBlock.querySelector("#imageEndpoint");
-  const endpointHelp = settingsBlock.querySelector("#imageEndpointHelp");
+  const modelInput = settingsBlock.querySelector("#tookenImageModel");
+  const endpointInput = settingsBlock.querySelector("#tookenImageEndpoint");
 
-  function fillProviders(selected) {
-    providerInput.innerHTML = "";
+  function populateImageSettings() {
+    const config = loadImageConfig();
 
-    for (const provider of providerOptions()) {
-      const option = document.createElement("option");
-      option.value = provider.id;
-      option.textContent = provider.name;
-      providerInput.appendChild(option);
-    }
-
-    providerInput.value = findProvider(selected)
-      ? selected
-      : DEFAULT_CONFIG.provider;
-  }
-
-  function updateEndpointHelp() {
-    const provider = findProvider(providerInput.value);
-
-    if (!provider) {
-      endpointHelp.textContent = "";
-      return;
-    }
-
-    const base = providerBaseUrl(provider);
-    const endpoint = endpointInput.value.trim() || (
-      apiTypeInput.value === "chat"
-        ? "/chat/completions"
-        : "/images/generations"
-    );
-
-    endpointHelp.textContent = `Адрес запроса: ${base}${endpoint}`;
-  }
-
-  function populateSettings() {
-    const config = loadConfig();
-
-    fillProviders(config.provider);
     modelInput.value = config.model || "";
-    apiTypeInput.value = config.apiType === "chat" ? "chat" : "images";
-    endpointInput.value = config.endpoint || (
-      apiTypeInput.value === "chat"
-        ? "/chat/completions"
-        : "/images/generations"
-    );
-
-    updateEndpointHelp();
+    endpointInput.value =
+      config.endpoint || DEFAULT_IMAGE_CONFIG.endpoint;
   }
-
-  providerInput.addEventListener("change", updateEndpointHelp);
-  endpointInput.addEventListener("input", updateEndpointHelp);
-
-  apiTypeInput.addEventListener("change", () => {
-    endpointInput.value = apiTypeInput.value === "chat"
-      ? "/chat/completions"
-      : "/images/generations";
-
-    updateEndpointHelp();
-  });
-
-  document.querySelector("#openSettings")
-    .addEventListener("click", populateSettings);
-
-  document.querySelector("#openSettings2")
-    .addEventListener("click", populateSettings);
 
   /*
-   * Исходный обработчик сохранения настроек остаётся на месте.
-   * Эти поля сохраняются отдельно.
+   * Кнопки настроек уже имеют обработчики onclick.
+   * addEventListener добавляет обработчики, не заменяя их.
    */
+  document.querySelector("#openSettings")
+    .addEventListener("click", populateImageSettings);
+
+  document.querySelector("#openSettings2")
+    .addEventListener("click", populateImageSettings);
+
   document.querySelector("#saveSettings")
     .addEventListener("click", () => {
       try {
-        const provider = findProvider(providerInput.value);
+        let endpoint = endpointInput.value.trim();
 
-        if (!provider) {
-          throw new Error("Выбран неизвестный провайдер.");
+        if (!endpoint) {
+          endpoint = DEFAULT_IMAGE_CONFIG.endpoint;
         }
 
-        const apiType = apiTypeInput.value === "chat" ? "chat" : "images";
+        /*
+         * Разрешаем только относительный путь.
+         * Это не позволит случайно отправить ключ на другой домен.
+         */
+        if (
+          !endpoint.startsWith("/") ||
+          endpoint.startsWith("//") ||
+          endpoint.includes("\\")
+        ) {
+          toast("Путь генерации должен начинаться с одного /");
+          return;
+        }
 
-        const endpoint = validateEndpoint(
-          endpointInput.value.trim() || (
-            apiType === "chat"
-              ? "/chat/completions"
-              : "/images/generations"
-          )
-        );
-
-        saveConfig({
-          provider: provider.id,
+        saveImageConfig({
           model: modelInput.value.trim(),
-          apiType,
           endpoint
         });
       } catch (err) {
-        console.error(err);
-        toast(err.message || "Не удалось сохранить настройки картинок");
+        console.error("Не удалось сохранить настройки картинок:", err);
+        toast("Не удалось сохранить настройки генерации");
       }
     });
 
-  populateSettings();
+  populateImageSettings();
 
-  // ========================================
-  // Временное хранение изображения
-  // ========================================
+  // ----------------------------------------
+  // Работа с временными картинками
+  // ----------------------------------------
 
   function removeTemporaryImage(messageId) {
     const item = temporaryImages.get(messageId);
@@ -1682,12 +1787,16 @@ $("#webBtn").onclick = ()=>{
     }
   }
 
-  function base64ToBlob(value) {
+  function base64ToBlob(base64) {
+    /*
+     * Поддерживаем как чистую Base64-строку,
+     * так и data:image/...;base64,...
+     */
     let contentType = "image/png";
-    let encoded = value;
+    let encoded = base64;
 
-    const match = value.match(
-      /^data:(image\/[a-z0-9.+-]+);base64,([\s\S]+)$/i
+    const match = base64.match(
+      /^data:(image\/[a-z0-9.+-]+);base64,(.+)$/is
     );
 
     if (match) {
@@ -1696,19 +1805,10 @@ $("#webBtn").onclick = ()=>{
     }
 
     if (!/^image\/(png|jpeg|webp|gif)$/.test(contentType)) {
-      throw new Error(
-        "Неподдерживаемый формат изображения: " + contentType
-      );
+      throw new Error("Неподдерживаемый формат изображения: " + contentType);
     }
 
-    let binary;
-
-    try {
-      binary = atob(encoded.replace(/\s/g, ""));
-    } catch {
-      throw new Error("Провайдер вернул некорректные данные изображения.");
-    }
-
+    const binary = atob(encoded.replace(/\s/g, ""));
     const bytes = new Uint8Array(binary.length);
 
     for (let i = 0; i < binary.length; i++) {
@@ -1719,27 +1819,21 @@ $("#webBtn").onclick = ()=>{
   }
 
   async function fetchImageBlob(url, signal) {
-    let parsed;
-
-    try {
-      parsed = new URL(url);
-    } catch {
-      throw new Error("Провайдер вернул некорректную ссылку на картинку.");
-    }
+    const parsed = new URL(url);
 
     if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-      throw new Error("Неподдерживаемый протокол ссылки на картинку.");
+      throw new Error("API вернул неподдерживаемую ссылку на изображение.");
     }
 
     /*
-     * API-ключ на адрес картинки не отправляется.
-     * Если сервер картинки запрещает CORS, загрузка не получится.
+     * Ключ Tooken сюда намеренно не передаётся:
+     * картинка может находиться на стороннем хосте.
      */
     const response = await fetch(parsed.href, { signal });
 
     if (!response.ok) {
       throw new Error(
-        "Не удалось загрузить картинку: HTTP " + response.status
+        "Не удалось загрузить изображение: HTTP " + response.status
       );
     }
 
@@ -1748,146 +1842,138 @@ $("#webBtn").onclick = ()=>{
 
     if (!/^image\/(png|jpeg|webp|gif)$/.test(type)) {
       throw new Error(
-        "Неподдерживаемый тип файла: " + (blob.type || "не указан")
+        "Сервер вернул файл неподдерживаемого типа: " +
+        (blob.type || "не указан")
       );
     }
 
     return blob;
   }
 
-  async function imageValueToBlob(value, signal) {
-    if (typeof value !== "string" || !value) {
-      throw new Error("Провайдер вернул пустое изображение.");
-    }
+  /*
+   * Поддерживаем распространённый ответ /images/generations:
+   *
+   * {
+   *   "data": [
+   *     { "b64_json": "..." }
+   *   ]
+   * }
+   *
+   * или:
+   *
+   * {
+   *   "data": [
+   *     { "url": "https://..." }
+   *   ]
+   * }
+   */
+  async function extractImageBlob(data, signal) {
+    const first = data?.data?.[0];
 
-    if (value.startsWith("data:image/")) {
-      return base64ToBlob(value);
-    }
-
-    if (/^https?:\/\//i.test(value)) {
-      return fetchImageBlob(value, signal);
-    }
-
-    /*
-     * В Images API b64_json обычно содержит Base64 без data:.
-     */
-    return base64ToBlob(value);
-  }
-
-  async function extractImageBlob(data, apiType, signal) {
-    if (apiType === "images") {
-      const item = data?.data?.[0];
-
-      if (!item) {
-        throw new Error(
-          "В ответе нет data[0]. Проверьте тип API и модель."
-        );
-      }
-
-      if (typeof item.b64_json === "string" && item.b64_json) {
-        return imageValueToBlob(item.b64_json, signal);
-      }
-
-      if (typeof item.url === "string" && item.url) {
-        return imageValueToBlob(item.url, signal);
-      }
-
+    if (!first) {
       throw new Error(
-        "В data[0] нет b64_json или url. " +
-        "Формат ответа провайдера отличается от поддерживаемого."
+        "API не вернул изображение в data[0]. " +
+        "Проверьте формат ответа Tooken."
       );
     }
 
-    const message = data?.choices?.[0]?.message || {};
-    const image = message.images?.[0];
-
-    const value =
-      image?.image_url?.url ||
-      image?.url ||
-      (typeof image === "string" ? image : "");
-
-    if (value) {
-      return imageValueToBlob(value, signal);
+    if (typeof first.b64_json === "string" && first.b64_json) {
+      return base64ToBlob(first.b64_json);
     }
 
-    const text = typeof message.content === "string"
-      ? message.content.trim()
-      : "";
+    if (typeof first.url === "string" && first.url) {
+      if (first.url.startsWith("data:image/")) {
+        return base64ToBlob(first.url);
+      }
+
+      return fetchImageBlob(first.url, signal);
+    }
 
     throw new Error(
-      text
-        ? "Модель вернула текст вместо картинки: " + text.slice(0, 300)
-        : "В ответе нет message.images. Проверьте модель и тип API."
+      "В ответе нет data[0].b64_json или data[0].url. " +
+      "Возможно, Tooken использует другой формат API."
     );
   }
 
   function storeTemporaryImage(messageId, blob) {
     removeTemporaryImage(messageId);
 
+    const objectUrl = URL.createObjectURL(blob);
+
     temporaryImages.set(messageId, {
-      objectUrl: URL.createObjectURL(blob),
-      filename:
-        `ai-image-${Date.now()}.${imageExtension(blob.type)}`
+      blob,
+      objectUrl,
+      filename: `tooken-image-${Date.now()}.${imageExtension(blob.type)}`
     });
   }
 
-  // ========================================
-  // Отображение изображения в текущем чате
-  // ========================================
+  // ----------------------------------------
+  // Добавление временной картинки в сообщение
+  // ----------------------------------------
 
   function renderTemporaryImages() {
     const chat = current();
-    const box = document.querySelector("#messages");
+    const messagesBox = document.querySelector("#messages");
 
-    if (!chat || !box) return;
+    if (!chat || !messagesBox) return;
 
-    for (const element of box.querySelectorAll(".msg")) {
+    const elements = messagesBox.querySelectorAll(".msg");
+
+    elements.forEach((element) => {
       const index = Number(element.dataset.idx);
       const message = chat.messages[index];
 
-      if (!message?.imageGenerationId) continue;
+      if (!message || !message.imageGenerationId) return;
 
       const bubble = element.querySelector(".bubble");
-      if (!bubble) continue;
 
-      if (bubble.querySelector(".generated-image")) continue;
+      if (!bubble) return;
+
+      /*
+       * Не добавляем картинку повторно,
+       * если наблюдатель вызван из-за изменения DOM.
+       */
+      if (bubble.querySelector(".generated-image")) return;
 
       const item = temporaryImages.get(message.imageGenerationId);
-      const container = document.createElement("div");
-
-      container.className = "generated-image";
 
       if (!item) {
-        container.classList.add("image-status");
-        container.textContent =
-          "Картинка не сохраняется в истории. " +
-          "Если страница была перезагружена, создайте её заново.";
-      } else {
-        const image = document.createElement("img");
+        const status = document.createElement("div");
+        status.className = "generated-image image-status";
+        status.textContent =
+          "Изображение не сохраняется в истории. " +
+          "После перезагрузки страницы оно недоступно.";
 
-        image.src = item.objectUrl;
-        image.alt = "Сгенерированное изображение";
-        image.title = "Открыть изображение";
-        image.loading = "lazy";
-
-        image.addEventListener("click", () => {
-          document.querySelector("#lightboxImg").src = item.objectUrl;
-          document.querySelector("#lightbox").classList.add("show");
-        });
-
-        const actions = document.createElement("div");
-        actions.className = "image-actions";
-
-        const download = document.createElement("a");
-        download.className = "btn primary";
-        download.href = item.objectUrl;
-        download.download = item.filename;
-        download.textContent = "⬇️ Скачать";
-
-        actions.appendChild(download);
-        container.appendChild(image);
-        container.appendChild(actions);
+        bubble.appendChild(status);
+        return;
       }
+
+      const container = document.createElement("div");
+      container.className = "generated-image";
+
+      const image = document.createElement("img");
+      image.src = item.objectUrl;
+      image.alt = "Изображение, созданное Tooken";
+      image.title = "Открыть изображение";
+      image.loading = "lazy";
+
+      image.addEventListener("click", () => {
+        document.querySelector("#lightboxImg").src = item.objectUrl;
+        document.querySelector("#lightbox").classList.add("show");
+      });
+
+      const actions = document.createElement("div");
+      actions.className = "image-actions";
+
+      const download = document.createElement("a");
+      download.className = "btn primary";
+      download.href = item.objectUrl;
+      download.download = item.filename;
+      download.textContent = "⬇️ Скачать";
+
+      actions.appendChild(download);
+      container.appendChild(image);
+      container.appendChild(actions);
 
       const meta = bubble.querySelector(".meta");
 
@@ -1896,97 +1982,71 @@ $("#webBtn").onclick = ()=>{
       } else {
         bubble.appendChild(container);
       }
-    }
+    });
   }
 
+  /*
+   * Существующий renderMessages() иногда полностью пересоздаёт DOM.
+   * Наблюдатель возвращает временное изображение на место,
+   * не меняя исходную функцию.
+   */
   const messagesBox = document.querySelector("#messages");
 
-  /*
-   * Исходная renderMessages() пересоздаёт содержимое чата.
-   * Наблюдатель добавляет временные картинки обратно в DOM.
-   */
-  const observer = new MutationObserver(renderTemporaryImages);
+  const observer = new MutationObserver(() => {
+    renderTemporaryImages();
+  });
 
   observer.observe(messagesBox, {
     childList: true,
     subtree: true
   });
 
-  // ========================================
-  // Запрос к выбранному провайдеру
-  // ========================================
+  // ----------------------------------------
+  // Запрос к Tooken
+  // ----------------------------------------
 
-  async function requestImage(prompt, signal) {
-    const config = loadConfig();
-    const provider = findProvider(config.provider);
-
-    if (!provider) {
-      throw new Error("Выбран неизвестный провайдер изображений.");
-    }
-
-    const key = (settings.keys[provider.keyProvider] || "").trim();
+  async function requestTookenImage(prompt, signal) {
+    const config = loadImageConfig();
+    const key = (settings.keys.tooken || "").trim();
 
     if (!key) {
       throw new Error(
-        `Укажите API-ключ для «${provider.name}» во вкладке «API-ключи».`
+        "Укажите ключ Tooken: Настройки → API-ключи → Tooken."
       );
     }
 
-    const model = (config.model || "").trim();
-
-    if (!model) {
+    if (!config.model.trim()) {
       throw new Error(
-        "Укажите ID модели в Настройки → Генерация → " +
-        "«ID модели генерации изображений»."
+        "Укажите ID модели: Настройки → Генерация → " +
+        "«Модель генерации изображений Tooken»."
       );
     }
 
-    const apiType = config.apiType === "chat" ? "chat" : "images";
+    const endpoint =
+      (config.endpoint || DEFAULT_IMAGE_CONFIG.endpoint).trim();
 
-    const endpoint = validateEndpoint(
-      (config.endpoint || (
-        apiType === "chat"
-          ? "/chat/completions"
-          : "/images/generations"
-      )).trim()
-    );
-
-    const base = providerBaseUrl(provider);
-    const url = base + endpoint;
-
-    const headers = {
-      "Content-Type": "application/json",
-      "Authorization": "Bearer " + key
-    };
-
-    if (provider.id === "openrouter") {
-      headers["HTTP-Referer"] = location.origin.startsWith("http")
-        ? location.origin
-        : "https://localhost";
-
-      headers["X-Title"] = "AI Chat HTML";
+    if (
+      !endpoint.startsWith("/") ||
+      endpoint.startsWith("//") ||
+      endpoint.includes("\\")
+    ) {
+      throw new Error("Некорректный путь API генерации изображений.");
     }
 
-    const body = apiType === "chat"
-      ? {
-          model,
-          messages: [
-            { role: "user", content: prompt }
-          ],
-          modalities: ["image", "text"],
-          stream: false
-        }
-      : {
-          model,
-          prompt,
-          n: 1
-        };
+    const url = baseUrlOf("tooken") + endpoint;
 
     const response = await fetch(url, {
       method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      signal
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + key
+      },
+      signal,
+      body: JSON.stringify({
+        model: config.model.trim(),
+        prompt,
+        n: 1
+      })
     });
 
     if (!response.ok) {
@@ -1998,8 +2058,7 @@ $("#webBtn").onclick = ()=>{
       } catch {}
 
       throw new Error(
-        `${provider.name}: HTTP ${response.status}. ` +
-        String(detail).slice(0, 500)
+        `Tooken HTTP ${response.status}: ${String(detail).slice(0, 500)}`
       );
     }
 
@@ -2007,99 +2066,21 @@ $("#webBtn").onclick = ()=>{
 
     if (data.error) {
       throw new Error(
-        data.error.message || "Провайдер вернул ошибку."
+        data.error.message || "Tooken вернул ошибку генерации."
       );
     }
 
-    return extractImageBlob(data, apiType, signal);
+    return extractImageBlob(data, signal);
   }
 
-  // ========================================
-  // Создание сообщения с картинкой
-  // ========================================
-
-  async function generateImageForChat(chat, prompt) {
-    if (controller || imageBusy || window.githubAgentBusy) return;
-
-    const config = loadConfig();
-    const provider = findProvider(config.provider);
-
-    const requestController = new AbortController();
-
-    controller = requestController;
-    genChatId = chat.id;
-    imageBusy = true;
-
-    const messageId = uid();
-
-    const message = {
-      role: "assistant",
-      content: "🎨 Создаю изображение…",
-      model: config.model || provider?.name || "Изображение",
-      time: Date.now(),
-      imageGenerationId: messageId
-    };
-
-    chat.messages.push(message);
-
-    updateSendBtn();
-    renderList();
-
-    if (currentId === chat.id) {
-      renderMessages();
-    }
-
-    try {
-      const blob = await requestImage(
-        prompt,
-        requestController.signal
-      );
-
-      if (requestController.signal.aborted) {
-        throw new DOMException("Остановлено", "AbortError");
-      }
-
-      storeTemporaryImage(messageId, blob);
-
-      message.content =
-        "Изображение готово. Скачайте его до перезагрузки страницы.";
-    } catch (err) {
-      message.content = "";
-
-      if (err.name === "AbortError") {
-        message.error = "Генерация изображения остановлена.";
-      } else if (err.message === "Failed to fetch") {
-        message.error =
-          "Не удалось выполнить запрос или загрузить картинку. " +
-          "Проверьте интернет, Base URL, путь API и CORS.";
-      } else {
-        message.error = err.message || String(err);
-      }
-    } finally {
-      imageBusy = false;
-
-      if (controller === requestController) {
-        controller = null;
-      }
-
-      updateSendBtn();
-
-      if (currentId === chat.id) {
-        renderMessages();
-      }
-
-      try {
-        await persist(chat);
-        renderList();
-      } catch (err) {
-        console.error("Ошибка сохранения чата:", err);
-        toast("Не удалось сохранить текст сообщения");
-      }
-    }
-  }
+  // ----------------------------------------
+  // Отправка сообщения в режиме изображения
+  // ----------------------------------------
 
   async function sendImagePrompt() {
-    if (controller || imageBusy || window.githubAgentBusy) return;
+    if (controller || imageRequestBusy || window.githubAgentBusy) {
+      return;
+    }
 
     const text = input.value.trim();
 
@@ -2119,6 +2100,15 @@ $("#webBtn").onclick = ()=>{
 
     const chat = current();
 
+    /*
+     * Создаём controller до первого await, чтобы двойной клик
+     * не запустил второй запрос.
+     */
+    const requestController = new AbortController();
+    controller = requestController;
+    genChatId = chat.id;
+    imageRequestBusy = true;
+
     chat.messages.push({
       role: "user",
       content: text,
@@ -2130,31 +2120,95 @@ $("#webBtn").onclick = ()=>{
       chat.title = text.replace(/\s+/g, " ").slice(0, 48);
     }
 
+    const messageId = uid();
+
+    const message = {
+      role: "assistant",
+      content: "🎨 Создаю изображение…",
+      model: loadImageConfig().model || "Tooken",
+      time: Date.now(),
+      imageGenerationId: messageId
+    };
+
+    chat.messages.push(message);
+
     input.value = "";
     autoGrow();
+    updateSendBtn();
+    renderList();
+    renderMessages();
 
-    /*
-     * Функция устанавливает controller до первого await,
-     * поэтому повторный клик не запустит второй запрос.
-     */
-    await generateImageForChat(chat, text);
+    try {
+      const blob = await requestTookenImage(
+        text,
+        requestController.signal
+      );
+
+      if (requestController.signal.aborted) {
+        throw new DOMException("Остановлено", "AbortError");
+      }
+
+      storeTemporaryImage(messageId, blob);
+
+      /*
+       * В истории сохраняется только текст и ID сообщения,
+       * но не сама картинка и не ссылка на неё.
+       */
+      message.content =
+        "Изображение готово. Скачайте его до перезагрузки страницы.";
+
+      if (currentId === chat.id) {
+        renderMessages();
+      }
+    } catch (err) {
+      message.content = "";
+
+      if (err.name === "AbortError") {
+        message.error = "Генерация изображения остановлена.";
+      } else if (err.message === "Failed to fetch") {
+        message.error =
+          "Не удалось подключиться к Tooken или загрузить изображение. " +
+          "Проверьте интернет, Base URL, путь API и CORS.";
+      } else {
+        message.error = err.message || String(err);
+      }
+
+      if (currentId === chat.id) {
+        renderMessages();
+      }
+    } finally {
+      imageRequestBusy = false;
+
+      if (controller === requestController) {
+        controller = null;
+      }
+
+      updateSendBtn();
+
+      try {
+        await persist(chat);
+        renderList();
+      } catch (err) {
+        console.error("Ошибка сохранения истории:", err);
+        toast("Не удалось сохранить текст сообщения");
+      }
+    }
   }
 
-  // ========================================
-  // Перехват отправки только в режиме картинки
-  // ========================================
-
+  /*
+   * Перехватываем отправку только в режиме картинки.
+   * В обычном режиме старые обработчики работают без изменений.
+   *
+   * Если запрос уже идёт, клик не перехватывается:
+   * исходная кнопка «Стоп» вызывает controller.abort().
+   */
   document.querySelector("#sendBtn").addEventListener(
     "click",
-    event => {
-      /*
-       * При активном controller оставляем исходной кнопке
-       * возможность остановить запрос.
-       */
+    (event) => {
       if (!imageMode || controller || window.githubAgentEnabled) return;
 
-      event.preventDefault();
       event.stopImmediatePropagation();
+      event.preventDefault();
 
       sendImagePrompt();
     },
@@ -2163,7 +2217,7 @@ $("#webBtn").onclick = ()=>{
 
   input.addEventListener(
     "keydown",
-    event => {
+    (event) => {
       if (
         !imageMode ||
         controller ||
@@ -2175,102 +2229,103 @@ $("#webBtn").onclick = ()=>{
         return;
       }
 
-      event.preventDefault();
       event.stopImmediatePropagation();
+      event.preventDefault();
 
       sendImagePrompt();
     },
     true
   );
 
-  // ========================================
-  // Повтор генерации изображения
-  // ========================================
-
+  /*
+   * Кнопка «Повторить» у сообщения с картинкой должна повторять
+   * именно генерацию картинки, а не обычный текстовый запрос.
+   */
   messagesBox.addEventListener(
     "click",
-    async event => {
+    async (event) => {
       const button = event.target.closest('[data-a="regen"]');
       if (!button) return;
 
-      const element = button.closest(".msg");
+      const messageElement = button.closest(".msg");
       const chat = current();
 
-      if (!element || !chat) return;
+      if (!messageElement || !chat) return;
 
-      const index = Number(element.dataset.idx);
+      const index = Number(messageElement.dataset.idx);
       const message = chat.messages[index];
 
       if (!message?.imageGenerationId) return;
 
-      event.preventDefault();
       event.stopImmediatePropagation();
+      event.preventDefault();
 
-      if (controller || imageBusy || window.githubAgentBusy) {
+      if (controller || imageRequestBusy || window.githubAgentBusy) {
         toast("Дождитесь окончания ответа");
         return;
       }
 
-      /*
-       * Ищем ближайший предыдущий запрос пользователя.
-       * Сам запрос остаётся в истории; повторно его не добавляем.
-       */
-      const previous = chat.messages
-        .slice(0, index)
-        .reverse()
-        .find(item => item.role === "user");
+      const previous = chat.messages[index - 1];
 
-      if (!previous?.content?.trim()) {
-        toast("Не найдено описание изображения");
+      if (!previous || previous.role !== "user" || !previous.content) {
+        toast("Не найдено описание для повторной генерации");
         return;
       }
 
+      removeTemporaryImage(message.imageGenerationId);
+
       /*
-       * Как и исходный «Повторить», удаляем выбранный ответ
-       * и сообщения после него.
+       * Повторяем поведение исходной кнопки:
+       * удаляем выбранный ответ и все последующие сообщения.
        */
-      for (const item of chat.messages.slice(index)) {
-        if (item.imageGenerationId) {
-          removeTemporaryImage(item.imageGenerationId);
-        }
-      }
-
       chat.messages.splice(index);
+      await persist(chat);
+      renderMessages();
 
-      await generateImageForChat(chat, previous.content);
-    },
-    true
-  );
+      /*
+       * sendImagePrompt() обычно добавляет сообщение пользователя.
+       * Здесь предыдущее сообщение уже есть, поэтому убираем его
+       * и передаём тот же текст повторно.
+       */
+      chat.messages.pop();
 
-  /*
-   * При обычном удалении сообщения освобождаем его картинку
-   * из памяти. Исходный обработчик удаления остаётся без изменений.
-   */
-  messagesBox.addEventListener(
-    "click",
-    event => {
-      const button = event.target.closest('[data-a="del"]');
-      if (!button || controller || window.githubAgentBusy) return;
+      const oldText = input.value;
+      const oldPending = pending;
 
-      const element = button.closest(".msg");
-      const chat = current();
+      input.value = previous.content;
+      pending = [];
 
-      if (!element || !chat) return;
+      await sendImagePrompt();
 
-      const message = chat.messages[Number(element.dataset.idx)];
-
-      if (message?.imageGenerationId) {
-        removeTemporaryImage(message.imageGenerationId);
+      /*
+       * Если пользователь успел набрать новый текст во время
+       * генерации, не заменяем его старым.
+       */
+      if (!input.value && oldText) {
+        input.value = oldText;
       }
+
+      if (!pending.length && oldPending.length) {
+        pending = oldPending;
+        renderPending();
+      }
+
+      autoGrow();
     },
     true
   );
 
   /*
-   * Не освобождаем object URL в pagehide: страница может попасть
-   * в back/forward cache и затем вернуться без перезагрузки.
-   * При фактическом закрытии документа браузер освободит память.
+   * Освобождаем object URL при закрытии/перезагрузке страницы.
+   * После этого картинки восстановить из истории нельзя.
    */
+  window.addEventListener("pagehide", () => {
+    for (const item of temporaryImages.values()) {
+      URL.revokeObjectURL(item.objectUrl);
+    }
+
+    temporaryImages.clear();
+  });
 })();
 </script>
 
