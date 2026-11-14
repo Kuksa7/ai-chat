@@ -1505,7 +1505,7 @@ $("#webBtn").onclick = ()=>{
 <script src="agent.js"></script>
 
 <style>
-/* Генерация изображений Tooken */
+/* Генерация изображений */
 .generated-image {
   margin-top: 10px;
 }
@@ -1565,30 +1565,18 @@ $("#webBtn").onclick = ()=>{
 (() => {
   "use strict";
 
-  /*
-   * Настройки генерации изображений хранятся отдельно,
-   * чтобы не менять существующий объект settings.
-   */
-  const IMAGE_CONFIG_KEY = "aichat_tooken_image_config";
-
-  /*
-   * Укажите реальный ID модели генерации изображений Tooken.
-   * Этот параметр намеренно пустой: неизвестно, какие модели
-   * и какой endpoint поддерживает ваш Tooken.
-   */
-  const DEFAULT_IMAGE_CONFIG = {
-    model: "",
-    endpoint: "/images/generations"
-  };
+  const IMAGE_CONFIG_KEY = "aichat_image_config";
+  const LEGACY_IMAGE_CONFIG_KEY = "aichat_tooken_image_config";
+  const DEFAULT_IMAGE_CONFIG = { mode: "generations", endpoint: "/images/generations" };
 
   function loadImageConfig() {
     try {
-      const saved = JSON.parse(localStorage.getItem(IMAGE_CONFIG_KEY) || "{}");
-
-      return {
-        ...DEFAULT_IMAGE_CONFIG,
-        ...saved
-      };
+      const saved = JSON.parse(
+        localStorage.getItem(IMAGE_CONFIG_KEY) ||
+        localStorage.getItem(LEGACY_IMAGE_CONFIG_KEY) ||
+        "{}"
+      );
+      return { ...DEFAULT_IMAGE_CONFIG, ...saved };
     } catch {
       return { ...DEFAULT_IMAGE_CONFIG };
     }
@@ -1633,10 +1621,9 @@ $("#webBtn").onclick = ()=>{
   function renderImageButton() {
     imageBtn.classList.toggle("on", imageMode);
     imageBtn.setAttribute("aria-pressed", String(imageMode));
-
     imageBtn.title = imageMode
-      ? "Генерация изображений Tooken включена"
-      : "Включить генерацию изображений Tooken";
+      ? "Генерация изображений включена для выбранной модели"
+      : "Включить генерацию изображений для выбранной модели";
   }
 
   imageBtn.addEventListener("click", () => {
@@ -1664,57 +1651,35 @@ $("#webBtn").onclick = ()=>{
   settingsBlock.style.paddingTop = "14px";
 
   settingsBlock.innerHTML = `
-    <label for="tookenImageModel">
-      🎨 Модель генерации изображений Tooken
-    </label>
-
-    <input
-      id="tookenImageModel"
-      type="text"
-      autocomplete="off"
-      placeholder="Введите ID модели из документации Tooken"
-    >
-
+    <label>🎨 Генерация изображений выбранной моделью</label>
+    <select id="imageModeSelect">
+      <option value="generations">Images API (/images/generations)</option>
+      <option value="chat">Chat Completions (ответ с изображением)</option>
+    </select>
+    <label for="imageEndpoint" style="margin-top:12px">Путь API относительно Base URL</label>
+    <input id="imageEndpoint" type="text" autocomplete="off" placeholder="/images/generations">
     <div class="small">
-      Используется API-ключ Tooken из вкладки «API-ключи».
-      ID модели должен поддерживать генерацию изображений.
+      Используются текущие провайдер, модель и API-ключ из настроек чата.
+      Поддержка генерации зависит от модели и API провайдера. При ошибке попробуйте другой режим или путь.
     </div>
-
-    <label for="tookenImageEndpoint" style="margin-top:12px">
-      Путь генерации относительно Base URL Tooken
-    </label>
-
-    <input
-      id="tookenImageEndpoint"
-      type="text"
-      autocomplete="off"
-      placeholder="/images/generations"
-    >
-
-    <div class="small">
-      По умолчанию используется OpenAI-совместимый
-      <code>/images/generations</code>. Если Tooken использует
-      другой путь, укажите его здесь.
-    </div>
-
-    <div class="small">
-      Настройки картинки сохраняются локально в этом браузере
-      и отдельно от синхронизируемых настроек чата.
-    </div>
+    <div class="small">Путь и режим хранятся локально в этом браузере.</div>
   `;
 
   generationPane.appendChild(settingsBlock);
-
-  const modelInput = settingsBlock.querySelector("#tookenImageModel");
-  const endpointInput = settingsBlock.querySelector("#tookenImageEndpoint");
+  const endpointInput = settingsBlock.querySelector("#imageEndpoint");
+  const modeSelect = settingsBlock.querySelector("#imageModeSelect");
 
   function populateImageSettings() {
     const config = loadImageConfig();
-
-    modelInput.value = config.model || "";
-    endpointInput.value =
-      config.endpoint || DEFAULT_IMAGE_CONFIG.endpoint;
+    endpointInput.value = config.endpoint || DEFAULT_IMAGE_CONFIG.endpoint;
+    modeSelect.value = config.mode || DEFAULT_IMAGE_CONFIG.mode;
+    endpointInput.placeholder = modeSelect.value === "chat" ? "/chat/completions" : "/images/generations";
   }
+
+  modeSelect.addEventListener("change", () => {
+    endpointInput.value = modeSelect.value === "chat" ? "/chat/completions" : "/images/generations";
+    endpointInput.placeholder = endpointInput.value;
+  });
 
   /*
    * Кнопки настроек уже имеют обработчики onclick.
@@ -1727,36 +1692,24 @@ $("#webBtn").onclick = ()=>{
     .addEventListener("click", populateImageSettings);
 
   document.querySelector("#saveSettings")
-    .addEventListener("click", () => {
+    .addEventListener("click", (event) => {
       try {
         let endpoint = endpointInput.value.trim();
+        if (!endpoint) endpoint = modeSelect.value === "chat" ? "/chat/completions" : DEFAULT_IMAGE_CONFIG.endpoint;
 
-        if (!endpoint) {
-          endpoint = DEFAULT_IMAGE_CONFIG.endpoint;
-        }
-
-        /*
-         * Разрешаем только относительный путь.
-         * Это не позволит случайно отправить ключ на другой домен.
-         */
-        if (
-          !endpoint.startsWith("/") ||
-          endpoint.startsWith("//") ||
-          endpoint.includes("\\")
-        ) {
-          toast("Путь генерации должен начинаться с одного /");
+        if (!endpoint.startsWith("/") || endpoint.startsWith("//") || endpoint.includes("\\")) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          toast("Путь API должен начинаться с одного /");
           return;
         }
 
-        saveImageConfig({
-          model: modelInput.value.trim(),
-          endpoint
-        });
+        saveImageConfig({ mode: modeSelect.value, endpoint });
       } catch (err) {
         console.error("Не удалось сохранить настройки картинок:", err);
         toast("Не удалось сохранить настройки генерации");
       }
-    });
+    }, true);
 
   populateImageSettings();
 
@@ -1826,7 +1779,7 @@ $("#webBtn").onclick = ()=>{
     }
 
     /*
-     * Ключ Tooken сюда намеренно не передаётся:
+     * Ключ провайдера сюда намеренно не передаётся:
      * картинка может находиться на стороннем хосте.
      */
     const response = await fetch(parsed.href, { signal });
@@ -1869,41 +1822,32 @@ $("#webBtn").onclick = ()=>{
    */
   async function extractImageBlob(data, signal) {
     const first = data?.data?.[0];
+    const chatMessage = data?.choices?.[0]?.message;
+    const image = first || chatMessage?.images?.[0] ||
+      (Array.isArray(chatMessage?.content)
+        ? chatMessage.content.find(part => part.type === "image_url" || part.type === "image")
+        : null);
+    const imageData = image?.image_url?.url || image?.url || image?.image_url || image?.b64_json;
 
-    if (!first) {
-      throw new Error(
-        "API не вернул изображение в data[0]. " +
-        "Проверьте формат ответа Tooken."
-      );
-    }
-
-    if (typeof first.b64_json === "string" && first.b64_json) {
-      return base64ToBlob(first.b64_json);
-    }
-
-    if (typeof first.url === "string" && first.url) {
-      if (first.url.startsWith("data:image/")) {
-        return base64ToBlob(first.url);
-      }
-
-      return fetchImageBlob(first.url, signal);
+    if (typeof imageData === "string" && imageData) {
+      if (imageData.startsWith("data:image/")) return base64ToBlob(imageData);
+      if (/^https?:\/\//i.test(imageData)) return fetchImageBlob(imageData, signal);
+      return base64ToBlob(imageData);
     }
 
     throw new Error(
-      "В ответе нет data[0].b64_json или data[0].url. " +
-      "Возможно, Tooken использует другой формат API."
+      "API не вернул изображение в поддерживаемом формате (data[0], message.images или image_url). " +
+      "Проверьте поддержку генерации изображений и формат ответа провайдера."
     );
   }
 
   function storeTemporaryImage(messageId, blob) {
     removeTemporaryImage(messageId);
-
     const objectUrl = URL.createObjectURL(blob);
-
     temporaryImages.set(messageId, {
       blob,
       objectUrl,
-      filename: `tooken-image-${Date.now()}.${imageExtension(blob.type)}`
+      filename: `generated-image-${Date.now()}.${imageExtension(blob.type)}`
     });
   }
 
@@ -1953,7 +1897,7 @@ $("#webBtn").onclick = ()=>{
 
       const image = document.createElement("img");
       image.src = item.objectUrl;
-      image.alt = "Изображение, созданное Tooken";
+      image.alt = "Сгенерированное изображение";
       image.title = "Открыть изображение";
       image.loading = "lazy";
 
@@ -2002,74 +1946,56 @@ $("#webBtn").onclick = ()=>{
   });
 
   // ----------------------------------------
-  // Запрос к Tooken
+  // Запрос генерации
   // ----------------------------------------
 
-  async function requestTookenImage(prompt, signal) {
+  async function requestImage(prompt, signal) {
     const config = loadImageConfig();
-    const key = (settings.keys.tooken || "").trim();
+    const provider = settings.provider;
+    const key = (settings.keys[provider] || "").trim();
+    const model = activeModel();
 
-    if (!key) {
-      throw new Error(
-        "Укажите ключ Tooken: Настройки → API-ключи → Tooken."
-      );
+    if (!key && !isKeyless(provider)) {
+      throw new Error(`Укажите API-ключ «${providerOf(provider).name}» в настройках.`);
+    }
+    if (!baseUrlOf(provider)) {
+      throw new Error(`У провайдера «${providerOf(provider).name}» не задан Base URL.`);
     }
 
-    if (!config.model.trim()) {
-      throw new Error(
-        "Укажите ID модели: Настройки → Генерация → " +
-        "«Модель генерации изображений Tooken»."
-      );
-    }
-
-    const endpoint =
-      (config.endpoint || DEFAULT_IMAGE_CONFIG.endpoint).trim();
-
-    if (
-      !endpoint.startsWith("/") ||
-      endpoint.startsWith("//") ||
-      endpoint.includes("\\")
-    ) {
+    const mode = config.mode || DEFAULT_IMAGE_CONFIG.mode;
+    const endpoint = (config.endpoint || DEFAULT_IMAGE_CONFIG.endpoint).trim();
+    if (!endpoint.startsWith("/") || endpoint.startsWith("//") || endpoint.includes("\\")) {
       throw new Error("Некорректный путь API генерации изображений.");
     }
 
-    const url = baseUrlOf("tooken") + endpoint;
+    const headers = { "Content-Type": "application/json" };
+    if (key) headers.Authorization = "Bearer " + key;
+    if (provider === "openrouter") {
+      headers["HTTP-Referer"] = location.origin.startsWith("http") ? location.origin : "https://localhost";
+      headers["X-Title"] = "AI Chat HTML";
+    }
 
-    const response = await fetch(url, {
+    const body = mode === "chat"
+      ? { model, messages: [{ role: "user", content: prompt }], stream: false }
+      : { model, prompt, n: 1 };
+    const response = await fetch(baseUrlOf(provider) + endpoint, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": "Bearer " + key
-      },
+      headers,
       signal,
-      body: JSON.stringify({
-        model: config.model.trim(),
-        prompt,
-        n: 1
-      })
+      body: JSON.stringify(body)
     });
 
     if (!response.ok) {
       let detail = await response.text();
-
       try {
         const parsed = JSON.parse(detail);
         detail = parsed.error?.message || parsed.message || detail;
       } catch {}
-
-      throw new Error(
-        `Tooken HTTP ${response.status}: ${String(detail).slice(0, 500)}`
-      );
+      throw new Error(`${providerOf(provider).name} HTTP ${response.status}: ${String(detail).slice(0, 500)}`);
     }
 
     const data = await response.json();
-
-    if (data.error) {
-      throw new Error(
-        data.error.message || "Tooken вернул ошибку генерации."
-      );
-    }
-
+    if (data.error) throw new Error(data.error.message || "Провайдер вернул ошибку генерации.");
     return extractImageBlob(data, signal);
   }
 
@@ -2125,7 +2051,7 @@ $("#webBtn").onclick = ()=>{
     const message = {
       role: "assistant",
       content: "🎨 Создаю изображение…",
-      model: loadImageConfig().model || "Tooken",
+      model: activeModel(),
       time: Date.now(),
       imageGenerationId: messageId
     };
@@ -2139,10 +2065,7 @@ $("#webBtn").onclick = ()=>{
     renderMessages();
 
     try {
-      const blob = await requestTookenImage(
-        text,
-        requestController.signal
-      );
+      const blob = await requestImage(text, requestController.signal);
 
       if (requestController.signal.aborted) {
         throw new DOMException("Остановлено", "AbortError");
@@ -2167,7 +2090,7 @@ $("#webBtn").onclick = ()=>{
         message.error = "Генерация изображения остановлена.";
       } else if (err.message === "Failed to fetch") {
         message.error =
-          "Не удалось подключиться к Tooken или загрузить изображение. " +
+          "Не удалось подключиться к провайдеру или загрузить изображение. " +
           "Проверьте интернет, Base URL, путь API и CORS.";
       } else {
         message.error = err.message || String(err);
